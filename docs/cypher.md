@@ -1,8 +1,8 @@
 # Cypher subset
 
-graph-ted-db speaks a **documented subset** of Cypher so Goddard helpers (and Graphiti’s Neo4j dialect, later) can run against a folder. This is not openCypher and not Neo4j.
+graph-ted-db speaks a **documented subset** of Cypher so graph-ted helpers (and Graphiti’s Neo4j dialect, later) can run against a folder. This is not openCypher and not Neo4j.
 
-Unsupported syntax raises `CypherError` with a source position. Prefer adding to this engine over rewriting queries in Goddard.
+Unsupported syntax raises `CypherError` with a source position. Prefer adding to this engine over rewriting queries in graph-ted.
 
 ## Expand the language
 
@@ -20,7 +20,7 @@ Indexes (`graph_ted_db.index.LocalIndex`) sit under `GRAPH_TED_DB_DATA/<graph-id
 
 ## Supported today
 
-Aimed at `full-stack-fastapi-goddard/backend/cypher/helpers/*.cypher`.
+Aimed at `graph-ted/backend/cypher/helpers/*.cypher`.
 
 **Clauses:** `MATCH`, `OPTIONAL MATCH`, `WHERE`, `WITH` `[DISTINCT]` `ORDER BY` `SKIP` `LIMIT`, `UNWIND`, `RETURN` `[DISTINCT]` `ORDER BY` `SKIP` `LIMIT`, `UNION` / `UNION ALL`, `DELETE`, `DETACH DELETE`, `CREATE`, `MERGE`, `SET` (property, `+=`, `=`, labels, `n:$(expr)`), `CALL db.create.setNodeVectorProperty` / `setRelationshipVectorProperty`, `CALL db.index.fulltext.queryNodes` / `queryRelationships` `YIELD`. `CREATE INDEX` / `CREATE FULLTEXT INDEX` / `DROP` / `SHOW` are accepted no-ops.
 

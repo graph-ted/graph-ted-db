@@ -34,7 +34,7 @@ def _graphiti_prop(
     if key in props and props[key] is not None:
         return props[key]
     # Graphiti EntityNode.created_at is required. Do not invent invalid_at —
-    # Goddard helpers treat missing invalid_at as "currently valid".
+    # graph-ted helpers treat missing invalid_at as "currently valid".
     if key == "created_at":
         return updated_at or _GRAPHITI_EPOCH
     if key == "valid_at" and "Episodic" in labels:

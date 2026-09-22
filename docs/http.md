@@ -1,6 +1,6 @@
 # HTTP daemon
 
-Localhost JSON over HTTP so Goddard (and anything else) can run Cypher without importing `graph_ted_db`. One process owns the graph folder and the process lock. This is not Bolt and not a hosted multi-tenant server.
+Localhost JSON over HTTP so graph-ted (and anything else) can run Cypher without importing `graph_ted_db`. One process owns the graph folder and the process lock. This is not Bolt and not a hosted multi-tenant server.
 
 Default bind: `127.0.0.1:8099` (not 7474/7687, so it can sit next to Neo4j on the same machine).
 
@@ -12,7 +12,7 @@ graph-ted-db put-node ./my-graph --label Entity --prop name=Alice --prop group_i
 graph-ted-db serve ./my-graph
 ```
 
-Later, Goddard Setup can store `http://127.0.0.1:8099` (or `graph-ted://` + this daemon) the way it stores `bolt://…` today.
+Later, graph-ted Setup can store `http://127.0.0.1:8099` (or `graph-ted://` + this daemon) the way it stores `bolt://…` today.
 
 ## Endpoints
 
@@ -75,7 +75,7 @@ Response:
 }
 ```
 
-### Connection check (Goddard-shaped)
+### Connection check (graph-ted-shaped)
 
 ```bash
 curl -s http://127.0.0.1:8099/health
@@ -86,12 +86,12 @@ curl -s http://127.0.0.1:8099/cypher \
 
 ## What you can test before the Graphiti driver
 
-You do **not** need Goddard or Graphiti wired yet. Against a folder:
+You do **not** need graph-ted or Graphiti wired yet. Against a folder:
 
 1. **CLI CRUD** — `put-node` / `ls-nodes` / `put-edge` / `delete-node` / `doctor`
 2. **CLI Cypher** — `graph-ted-db cypher ./my-graph 'MATCH (n) RETURN n.name AS name'`
 3. **This daemon** — `serve` + the curls above
-4. **Goddard helpers** — copy a file from `full-stack-fastapi-goddard/backend/cypher/helpers/` and POST it with `$uuid` / `$group_id` / `$uuids` / `$focus_uuid`
+4. **graph-ted helpers** — copy a file from `graph-ted/backend/cypher/helpers/` and POST it with `$uuid` / `$group_id` / `$uuids` / `$focus_uuid`
 
 Writes through Cypher include `CREATE` / `MERGE` / `SET` / `DELETE` / `DETACH DELETE` (POST only). Graphiti MCP should talk to this daemon (`GraphTedDbDriver` with an `http://` URL). Opening `GraphStore` in-process remains available for library and CLI use.
 
@@ -154,11 +154,11 @@ networkingMode=mirrored
 
 Restart WSL (`wsl --shutdown`) after changing that. If a WSL `serve` is also running, curl will hit WSL again.
 
-## URI notes (for a later Goddard Setup field)
+## URI notes (for a later graph-ted Setup field)
 
 | Scheme | Meaning |
 |---|---|
-| `http://127.0.0.1:8099` | This daemon (what Goddard should HTTP POST to) |
+| `http://127.0.0.1:8099` | This daemon (what graph-ted should HTTP POST to) |
 | `graph-ted:///abs/path/to/folder` | The graph folder; a client still has to run or reach a daemon (or use the Python library) |
 | `bolt://…` | Neo4j (unchanged) |
 

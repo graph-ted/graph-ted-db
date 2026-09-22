@@ -1,4 +1,4 @@
-"""Run Goddard helper Cypher against a Graphiti-shaped graph-ted-db folder."""
+"""Run graph-ted helper Cypher against a Graphiti-shaped graph-ted-db folder."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from graph_ted_db.store import GraphStore, init_graph
 HELPER_DIR = (
     Path(__file__).resolve().parents[2]
     / "accrevolution"
-    / "full-stack-fastapi-goddard"
+    / "graph-ted"
     / "backend"
     / "cypher"
     / "helpers"
@@ -31,7 +31,7 @@ MENTIONS_Q = "00000000-0000-4000-8000-000000000015"
 def _helper(name: str) -> str:
     path = HELPER_DIR / f"{name}.cypher"
     if not path.is_file():
-        pytest.skip(f"Goddard helper not at {path}")
+        pytest.skip(f"graph-ted helper not at {path}")
     return path.read_text(encoding="utf-8")
 
 
