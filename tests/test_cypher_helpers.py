@@ -2,20 +2,25 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
 
 from graph_ted_db.store import GraphStore, init_graph
 
-HELPER_DIR = (
+# Default: sibling checkout
+#   <parent>/graph-ted-db/
+#   <parent>/graph-ted/backend/cypher/helpers/
+# Override with env HELPER_DIR (absolute or relative path).
+_DEFAULT_HELPER_DIR = (
     Path(__file__).resolve().parents[2]
-    / "accrevolution"
     / "graph-ted"
     / "backend"
     / "cypher"
     / "helpers"
 )
+HELPER_DIR = Path(os.environ.get("HELPER_DIR", str(_DEFAULT_HELPER_DIR))).expanduser().resolve()
 
 ALICE = "00000000-0000-4000-8000-0000000000a1"
 FORM = "00000000-0000-4000-8000-0000000000f1"
@@ -55,6 +60,7 @@ def _rel(
 ) -> None:
     payload = {
         "uuid": record_id,
+        "group_id": "default",
         "created_at": "2026-01-02T00:00:00.000000Z",
         **props,
     }
