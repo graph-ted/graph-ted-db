@@ -9,14 +9,13 @@ A shared folder is the database; OneDrive, rclone, or abraunegg replicate it. Ap
 
 ## Used by graph-ted standalone
 
-This database is the **default graph store** for the graph-ted **standalone** (laptop) path: `GRAPH_STORE=graph-ted-db` + localhost HTTP (`:8099`).
+**graph-ted-db** is the local graph store for **graph-ted Standalone** (SQLite-era easy button: no Docker, no Neo4j). Hosted deployments use Neo4j instead and must not run graph-ted-db.
 
-Full kit install (app + agent + engine + this DB): see **[graph-ted `docs/standalone.md`](https://github.com/graph-ted/graph-ted/blob/main/docs/standalone.md)**.
+For the product install and `graph-ted up` happy path, see the app docs:
 
-Hard rule: do **not** point Railway / hosted Compose at graph-ted-db — hosted stays on Neo4j/FalkorDB.
+→ [graph-ted `docs/standalone.md`](https://github.com/graph-ted/graph-ted/blob/main/docs/standalone.md)
 
 
-v1 targets Graphiti-style temporal graphs, a documented Cypher subset, and a Python library with an optional localhost HTTP daemon. Bolt is designed for but not built yet.
 
 ## Status
 
