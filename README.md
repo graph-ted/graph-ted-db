@@ -6,6 +6,16 @@ A shared folder is the database; OneDrive, rclone, or abraunegg replicate it. Ap
 
 **graph-ted** (the kit) is the larger app layer this database is meant to sit under. This repo is only the store: initialize a folder, put/get nodes and edges, speak a Cypher subset, and optionally serve it on localhost HTTP (Bolt later). It does not include kit UI, agents, or ontology tooling.
 
+
+## Used by graph-ted standalone
+
+This database is the **default graph store** for the graph-ted **standalone** (laptop) path: `GRAPH_STORE=graph-ted-db` + localhost HTTP (`:8099`).
+
+Full kit install (app + agent + engine + this DB): see **[graph-ted `docs/standalone.md`](https://github.com/graph-ted/graph-ted/blob/main/docs/standalone.md)**.
+
+Hard rule: do **not** point Railway / hosted Compose at graph-ted-db — hosted stays on Neo4j/FalkorDB.
+
+
 v1 targets Graphiti-style temporal graphs, a documented Cypher subset, and a Python library with an optional localhost HTTP daemon. Bolt is designed for but not built yet.
 
 ## Status
