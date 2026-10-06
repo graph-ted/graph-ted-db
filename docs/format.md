@@ -268,4 +268,4 @@ These must not be placed in the synced graph folder. v1 writes `catalog.jsonl`, 
 - Not a single-file database.
 - Not one file per node/edge (OneDrive item budget).
 - Not CRDT merge of property maps. Whole-record LWW: one complete object wins; concurrent field-level edits on the same id can lose the non-winning write, they must not mix into a corrupt object.
-- Not encrypted. The folder ACL is the security boundary.
+- Not encrypted at rest by the library. Security is as strong as your storage and network (encrypted volumes and an airgap can be very strong; synced or shared folders are not). The folder ACL / disk encryption / network exposure you choose is the security boundary — see README Security.

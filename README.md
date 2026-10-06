@@ -138,6 +138,17 @@ Open `nodes/<shard>.jsonl` in an editor — that file is the store. Putting the 
 
 See [`docs/format.md`](docs/format.md) for the on-disk spec.
 
+
+## Security
+
+graphted-db stores your graph as ordinary files on disk. **It does not encrypt those files.** Security is as strong as the environment you put them in: disk/volume encryption, OS account permissions, backups, sync tools, and whether anything listens on the network.
+
+- **Standalone / airgapped + encrypted volume:** can be very strong — treat the encrypted volume and airgap as your vault.
+- **Synced folders, shared machines, or cloud disks:** anyone or any tool with access to that folder can read the graph (including anything you stored in properties).
+- **HTTP serve:** defaults to localhost; binding beyond loopback requires an explicit host and a token. That protects the *port*, not the files on disk.
+
+Plan accordingly: choose storage and network to match how sensitive the data is. The library will not make an insecure disk secure.
+
 ## Layout
 
 ```

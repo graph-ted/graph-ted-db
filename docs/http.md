@@ -108,7 +108,7 @@ When a token is configured, every route except `GET /health` requires one of:
 - `Authorization: Bearer <token>`
 - `X-Graph-Ted-Token: <token>`
 
-Missing or wrong token is `401`. This is not encryption and not a hosted multi-tenant server.
+Missing or wrong token is `401`. The token protects the *port*, not the files on disk — see README Security. This is not at-rest encryption and not a hosted multi-tenant server.
 
 If `GET /health` shows a different `name`/`id` than the serve banner, another `graph-ted-db serve` is still bound to 8099 (common on Windows). Stop it, then start once:
 
