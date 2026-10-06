@@ -39,6 +39,26 @@ Open `nodes/<shard>.jsonl` in an editor — that file is the store. Putting the 
 
 This repo is only the store. It does not include kit UI, agents, or ontology tooling. Cypher and localhost HTTP are optional and come after the Python API.
 
+### NetworkX-like aliases
+
+Secondary. If you know NetworkX, a few method names on the same `GraphStore` map onto the calls above. Prefer `make_node`, `get_node`, `iter_nodes`, `make_edge`, and `execute` in new code. Use Cypher (`execute`) when you want Neo4j-ish queries. The aliases are a gateway from NetworkX habits to this store and then to Cypher. Graph algorithms such as `shortest_path` are not part of this API.
+
+`g` below is the store opened in the example above.
+
+```python
+alice = g.add_node("alice", label="Person", name="Alice")
+bob = g.add_node("bob", label="Person", name="Bob")
+g.add_edge("alice", "bob", type="KNOWS", since=2020)
+assert g.has_node("alice") and g.has_edge("alice", "bob")
+assert bob.id in list(g.neighbors("alice"))
+assert g.get_node(alice.id).props["name"] == "Alice"
+```
+
+- **Ids.** A UUID string is the record id. Any other `str` or `int` maps to a stable record id (`GraphStore.alias_record_id`). `nodes()`, `edges()`, and `neighbors()` yield those record ids — the same ids as `iter_nodes` / `iter_edges` — and yield ids, not full records. Alias methods accept either the original key or the record id.
+- **Labels.** `label="Person"` or `labels=["Person", "Entity"]` set node labels and are omitted from `props`. Every other keyword is a property (`name="Alice"` becomes `props["name"]`). Calling `add_node` again with the same id replaces the whole record.
+- **Edges.** Directed. `type` is the relationship type (default `RELATED`) and is omitted from `props`. Both endpoints must already exist; each `add_edge` inserts another edge. `has_edge(u, v)` is true when `get_edge` would return a live edge from `u` to `v` (`type=` narrows that). `remove_edge(u, v)` deletes one matching edge. `neighbors(n)` yields outgoing neighbor record ids from the local adjacency index.
+- **Deletes.** `remove_node` / `remove_edge` call `delete_node` / `delete_edge`. `remove_node` detaches incident edges. A missing node or edge raises `KeyError`.
+
 ## Cypher
 
 Power queries use a documented Cypher subset on the same open store. Syntax: [`docs/cypher.md`](docs/cypher.md).

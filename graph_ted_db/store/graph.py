@@ -34,6 +34,7 @@ from graph_ted_db.store.lock import (
 )
 from graph_ted_db.store.lww import resolve
 from graph_ted_db.store.paths import GraphPaths, discover_shard_stems, shard_jsonl_files
+from graph_ted_db.store.aliases import _GraphStoreAliases
 from graph_ted_db.store.records import (
     EMPTY_LABELS,
     EdgeRecord,
@@ -82,8 +83,14 @@ class _Txn:
     ops: list[tuple[str, Any]] = field(default_factory=list)
 
 
-class GraphStore:
-    """Single-writer (this machine) view of a graph folder."""
+class GraphStore(_GraphStoreAliases):
+    """Single-writer (this machine) view of a graph folder.
+
+    Primary writes are ``put_node``, ``put_edge``, ``make_node``, and
+    ``make_edge``. ``add_node``, ``add_edge``, ``nodes``, ``edges``,
+    ``has_node``, ``has_edge``, ``neighbors``, ``remove_node``, and
+    ``remove_edge`` are optional NetworkX-like aliases for those operations.
+    """
 
     def __init__(self, root: str | Path, *, data_dir: Path | None = None) -> None:
         self.root = Path(root).expanduser().resolve()
