@@ -1,6 +1,6 @@
 # HTTP daemon
 
-Optional. Everyday open / put / get is the in-process Python API in the [README](../README.md) (`GraphStore.open`, `make_node`, `get_node`). This daemon is localhost JSON over HTTP so graph-ted (and anything else) can run Cypher without importing `graph_ted_db`. One process owns the graph folder and the process lock. This is not Bolt and not a hosted multi-tenant server.
+Optional. Everyday open / put / get is the in-process Python API in [Getting started](getting-started.md) (`GraphStore.open`, `make_node`, `get_node`). This daemon is localhost JSON over HTTP so graph-ted (and anything else) can run Cypher without importing `graph_ted_db`. One process owns the graph folder and the process lock. This is not Bolt and not a hosted multi-tenant server.
 
 Default bind: `127.0.0.1:8099` (not 7474/7687, so it can sit next to Neo4j on the same machine).
 
@@ -108,7 +108,7 @@ When a token is configured, every route except `GET /health` requires one of:
 - `Authorization: Bearer <token>`
 - `X-Graph-Ted-Token: <token>`
 
-Missing or wrong token is `401`. The token protects the *port*, not the files on disk — see README Security. This is not at-rest encryption and not a hosted multi-tenant server.
+Missing or wrong token is `401`. The token protects the *port*, not the files on disk — see [Security](security.md). This is not at-rest encryption and not a hosted multi-tenant server.
 
 If `GET /health` shows a different `name`/`id` than the serve banner, another `graph-ted-db serve` is still bound to 8099 (common on Windows). Stop it, then start once:
 

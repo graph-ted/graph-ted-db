@@ -1,0 +1,50 @@
+site_name: graph-ted-db
+site_description: Local property-graph storage for Python
+site_url: https://graph-ted.com/db/   # eventual; local preview ignores this
+repo_url: https://github.com/graph-ted/graph-ted-db
+repo_name: graph-ted/graph-ted-db
+edit_uri: ""
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Dark mode
+    - scheme: slate
+      primary: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - content.code.copy
+    - search.suggest
+
+nav:
+  - Home: index.md
+  - Getting started: getting-started.md
+  - Guides:
+      - Overview: overview.md
+      - Security: security.md
+      - On-disk format: format.md
+      - Cypher: cypher.md
+      - HTTP: http.md
+  - Stack: stack.md
+
+markdown_extensions:
+  - attr_list
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - toc:
+      permalink: true
+
+plugins:
+  - search

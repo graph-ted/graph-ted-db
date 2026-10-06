@@ -68,6 +68,8 @@ Choose storage and network to match how sensitive the data is.
 
 ## Documentation
 
+The docs site is the MkDocs tree in this repository ([`docs/index.md`](docs/index.md)). Preview locally: see [PREVIEW.md](PREVIEW.md).
+
 | Doc | Contents |
 |-----|----------|
 | [docs/overview.md](docs/overview.md) | Product overview |

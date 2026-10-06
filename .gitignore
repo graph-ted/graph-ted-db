@@ -19,3 +19,6 @@ mnt/
 
 # Demo graph created by serve.sh / serve.bat
 /my-graph/
+
+# MkDocs build output (mkdocs build). Not published.
+/site/

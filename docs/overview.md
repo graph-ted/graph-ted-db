@@ -1,18 +1,35 @@
-# graph-ted-db
+# Overview
 
-Local property-graph storage for Python. Your data lives in a folder on disk; open it from your process, query it in-process, and optionally sync that folder like any other files. No database server to run for the default path.
+graph-ted-db is a **local property-graph store** for Python applications. One directory on disk is one graph. Applications open that directory in-process; they do not need a database server for the default path.
 
-**Package:** `graph-ted-db` · **Import:** `graph_ted_db` · **Repo:** [graph-ted/graph-ted-db](https://github.com/graph-ted/graph-ted-db) · **License:** MIT
+## Package names
 
-Good fit for prototypes, local tools, and small trusted groups that want a property graph next to the app. Choose a server graph database when you need multi-tenant hosting, fine-grained remote auth, or a full Cypher/enterprise feature set.
+| | |
+|--|--|
+| Distribution | `graph-ted-db` |
+| Import | `graph_ted_db` |
+| CLI | `graph-ted-db` (alias `graphted-db`) |
 
-This repository is the database library only. It is the local store used by [graph-ted](https://github.com/graph-ted/graph-ted) standalone. Hosted deployments may use other backends. Install, the Python API, and the CLI are in the [README](../README.md).
+## Capabilities
 
-The library stores ordinary files and does not encrypt them. Security matches the machine and the share. See [Security](../README.md#security) in the README.
+| Capability | Notes |
+|------------|--------|
+| Nodes / edges / vectors | Create, read, update, delete, iterate |
+| Cypher subset | `GraphStore.execute` — see [Cypher](cypher.md) |
+| Localhost HTTP | Optional serve — see [HTTP](http.md) |
+| Sync-friendly files | Sharded JSONL, per-record last-write-wins, conflict-copy merge |
+| NetworkX-style helpers | `add_node`, `add_edge`, `neighbors`, etc. (no algorithm suite) |
 
-## How-to in this tree
+## Design in brief
 
-- [README](../README.md) — install, Python quick start, CLI, optional HTTP
-- [On-disk format](format.md) — sharded JSONL in a folder
-- [Cypher subset](cypher.md) — graph-pattern queries on an open store
-- [HTTP](http.md) — optional localhost serve
+- **One folder = one graph** = one share / ACL boundary.
+- Canonical data is sharded JSONL. Derived indexes are local and rebuildable.
+- Concurrent editors: last-write-wins per record; union-merge of conflict copies on read.
+- Crash safety: appends fsync; `graph-ted-db doctor` repairs torn lines and dangling edges.
+- Process locks live outside the synced folder (`GRAPH_TED_DB_DATA` / platform app data).
+
+Full layout: [On-disk format](format.md).
+
+## What this repository is not
+
+This repository is the database library only. Application UI, agents, and higher-level toolkit pieces live elsewhere in the graph-ted family — see [Stack](stack.md).
