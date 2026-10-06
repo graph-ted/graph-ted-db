@@ -10,7 +10,7 @@ if not exist ".venv\Scripts\activate.bat" (
 
 call ".venv\Scripts\activate.bat"
 title graph-ted-db
-echo graphted-db CLI is ready. Try:  graphted-db --help
+echo graph-ted-db CLI is ready. Try:  graph-ted-db --help
 echo Leave this window with:  exit
 echo.
 cmd /k

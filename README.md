@@ -1,17 +1,17 @@
-# graphted-db
+# graph-ted-db
 
 Local property-graph storage for Python. Your data lives in a folder on disk; open it from your process, query it in-process, and optionally sync that folder like any other files. No database server to run for the default path.
 
-**Package:** `graphted-db` · **Import:** `graph_ted_db` · **License:** MIT
+**Package:** `graph-ted-db` · **Import:** `graph_ted_db` · **Repo:** [graph-ted/graph-ted-db](https://github.com/graph-ted/graph-ted-db) · **License:** MIT
 
-> Status: the public API and on-disk format below are what we ship. `pip install graphted-db` is the intended install; until the package is on PyPI, use a checkout (`pip install -e .`) or a wheel path.
+> Status: the public API and on-disk format below are what we ship. `pip install graph-ted-db` is the intended install; until the package is on PyPI, use a checkout (`pip install -e .`) or a wheel path.
 
 ---
 
 ## Install
 
 ```bash
-pip install graphted-db
+pip install graph-ted-db
 ```
 
 Requires Python 3.10+.
@@ -34,10 +34,12 @@ print(g.get_node(alice.id).props["name"])
 CLI:
 
 ```bash
-graphted-db init ./my-graph --name demo
-graphted-db put-node ./my-graph --label Person --prop name=Alice
-graphted-db ls-nodes ./my-graph
+graph-ted-db init ./my-graph --name demo
+graph-ted-db put-node ./my-graph --label Person --prop name=Alice
+graph-ted-db ls-nodes ./my-graph
 ```
+
+`graphted-db` is an alias for the same command.
 
 ## Features
 
@@ -86,4 +88,4 @@ pytest
 
 ## Related
 
-graphted-db is the local store used by [graph-ted](https://github.com/graph-ted/graph-ted) standalone. Hosted deployments may use other backends. This repository is the database library only.
+graph-ted-db is the local store used by [graph-ted](https://github.com/graph-ted/graph-ted) standalone. Hosted deployments may use other backends. This repository is the database library only.

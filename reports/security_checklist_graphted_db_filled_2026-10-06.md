@@ -1,10 +1,10 @@
-# graphted-db — Security checklist (FILLED)
+# graph-ted-db — Security checklist (FILLED)
 
 **Purpose:** Before anything goes public (TestPyPI or PyPI), confirm the package is hard to *casually* hack or abuse. Local graph files are not a vault — we do not promise encryption of the user’s database on disk. We *do* promise: passwords aren’t stored in the clear, untrusted input can’t run code or commands, and secrets don’t leak into the repo or logs.
 
 **How to use:** Margaret (or Grok Build under her brief) runs this against a named git tip, fills PASS / FAIL / N/A + short notes, and lands the filled report in git. Potts ACCEPT or reject before public publish.
 
-**Scope:** `graphted-db` wheel + thin `graphted` meta-package. App-only items (login UI, Railway) only where the DB library itself creates the risk.
+**Scope:** `graph-ted-db` wheel + thin `graphted` meta-package. App-only items (login UI, Railway) only where the DB library itself creates the risk.
 
 ---
 
@@ -70,7 +70,7 @@
 | # | Check | Why it matters | PASS / FAIL / N/A | Notes |
 |---|--------|----------------|-------------------|-------|
 | F1 | Known-high/critical vulnerabilities in direct dependencies reviewed (`pip-audit` or equivalent) | Supply-chain “easy break” | **PASS** | Runtime `dependencies = []`. `pip-audit` on clean venv with both wheels: **No known vulnerabilities found** (2026-10-06 CT). |
-| F2 | No unnecessary packages that pull in heavy attack surface for little benefit | Less to patch and less to distrust | **PASS** | Zero runtime deps; optional `dev = pytest`. Meta `graphted` only depends on `graphted-db`. |
+| F2 | No unnecessary packages that pull in heavy attack surface for little benefit | Less to patch and less to distrust | **PASS** | Zero runtime deps; optional `dev = pytest`. Meta `graphted` only depends on `graph-ted-db`. |
 
 ## G. Honest product claims
 

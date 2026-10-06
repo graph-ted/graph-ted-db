@@ -1,10 +1,10 @@
-# graphted-db — Quality checklist (FILLED)
+# graph-ted-db — Quality checklist (FILLED)
 
 **Purpose:** Before public publish, confirm the package isn’t easy to *break*, confusing to install, or embarrassing in front of experienced Python users. This is not “perfect software.” It’s “does what it says, fails clearly, and looks intentional.”
 
 **How to use:** Same as security — named tip, PASS / FAIL / N/A + notes, report in git, Potts ACCEPT before public publish.
 
-**Scope:** `graphted-db` + thin `graphted` meta-package on PyPI naming.
+**Scope:** `graph-ted-db` + thin `graphted` meta-package on PyPI naming.
 
 ---
 
@@ -27,11 +27,11 @@
 
 | # | Check | Why it matters | PASS / FAIL / N/A | Notes |
 |---|--------|----------------|-------------------|-------|
-| 1.1 | Clean venv can `pip install` the built wheel with no manual path hacks | Public users only do `pip install` | **PASS** | `python -m build` → `graphted_db-0.1.0-py3-none-any.whl`; clean venv `pip install` wheel OK. `make wheels` documented. |
-| 1.2 | `import` of the public package name works after install | Wrong import path = instant “this is broken” | **PASS** | `import graph_ted_db` → `__version__ == "0.1.0"`; `from graph_ted_db import GraphStore, init_graph`. Dist name `graphted-db` ≠ import (documented). |
+| 1.1 | Clean venv can `pip install` the built wheel with no manual path hacks | Public users only do `pip install` | **PASS** | `python -m build` → `graph_ted_db-0.1.0-py3-none-any.whl`; clean venv `pip install` wheel OK. `make wheels` documented. |
+| 1.2 | `import` of the public package name works after install | Wrong import path = instant “this is broken” | **PASS** | `import graph_ted_db` → `__version__ == "0.1.0"`; `from graph_ted_db import GraphStore, init_graph`. Dist name `graph-ted-db` ≠ import (documented). |
 | 1.3 | Package version on PyPI matches the git tag / changelog | Version lies destroy trust | **N/A** | Not on PyPI/TestPyPI (by policy). Version `0.1.0` consistent in `pyproject.toml` + `__init__.py` + meta. **No git tag `v0.1.0` yet** — create before any public/private tagged install story. |
 | 1.4 | Wheel is pure Python (or platform story is documented) | Surprise native builds fail on people’s machines | **PASS** | `Root-Is-Purelib: true` / `Tag: py3-none-any`. No extensions. |
-| 1.5 | Meta-package `graphted` pulls `graphted-db` and installs cleanly | Brand entry point must not be a trap | **PASS** | Built `graphted-0.1.0-py3-none-any.whl`; `pip install --no-index --find-links dist graphted` → `Requires: graphted-db`. No modules (intentional). |
+| 1.5 | Meta-package `graphted` pulls `graph-ted-db` and installs cleanly | Brand entry point must not be a trap | **PASS** | Built `graphted-0.1.0-py3-none-any.whl`; `pip install --no-index --find-links dist graphted` → `Requires: graph-ted-db`. No modules (intentional). |
 
 ## 2. “Does the core thing work?”
 
@@ -39,7 +39,7 @@
 |---|--------|----------------|-------------------|-------|
 | 2.1 | Automated tests cover create / read / update / delete (or your real core ops) for the happy path | No tests → regressions ship | **PASS** | `tests/test_store.py` put/get/list/delete nodes+edges; cypher + server suites. **93 passed**, 11 skipped (`test_cypher_helpers` needs sibling app helpers). |
 | 2.2 | At least one test uses a real on-disk DB file (not only mocks) | Mocks lie; files are the product | **PASS** | Store tests use `tmp_path` + real JSONL shards (`test_put_get_list_node`, conflict-copy tests). |
-| 2.3 | Smoke script: install wheel → open/create graph → write one fact → read it back → exit 0 | Catches “tests pass, product doesn’t” | **PASS** | Clean venv: `graphted-db init` / `put-node` / `ls-nodes` on `/tmp/audit-smoke-graph` exit 0; Alice persisted. |
+| 2.3 | Smoke script: install wheel → open/create graph → write one fact → read it back → exit 0 | Catches “tests pass, product doesn’t” | **PASS** | Clean venv: `graph-ted-db init` / `put-node` / `ls-nodes` on `/tmp/audit-smoke-graph` exit 0; Alice persisted. |
 | 2.4 | Second open of the same graph folder still works (persistence) | Local DB that forgets itself is a non-starter | **PASS** | Second `GraphStore.open` → `iter_nodes` returned Alice. |
 
 ## 3. Bad input and failure behavior
@@ -55,7 +55,7 @@
 
 | # | Check | Why it matters | PASS / FAIL / N/A | Notes |
 |---|--------|----------------|-------------------|-------|
-| 4.1 | README shows a minimal working example that matches the installed API | First five minutes decide reputation | **PASS** | README Python block: `init_graph`, `GraphStore.open`, `make_node`, `execute` — matches `__init__.py` exports. CLI examples use `graphted-db`. |
+| 4.1 | README shows a minimal working example that matches the installed API | First five minutes decide reputation | **PASS** | README Python block: `init_graph`, `GraphStore.open`, `make_node`, `execute` — matches `__init__.py` exports. CLI examples use `graph-ted-db`. |
 | 4.2 | Public function/class names are stable and documented; experimental bits marked | Cool-kid derision often starts at messy APIs | **PASS** | Public: `GraphStore`, `init_graph`, `CypherError`, `__version__`. Status section documents Cypher subset / localhost HTTP. |
 | 4.3 | Breaking changes bump major version (or pre-1.0 policy is written down) | Surprises burn adopters | **FAIL** | At `0.1.0` with **no** written pre-1.0 / semver policy in README. **Backlog low.** |
 | 4.4 | Limitations are stated (e.g. not a network server, not encrypted at rest) | Honesty > marketing gloss | **PASS** | README + format/http docs: not multi-tenant server; not encrypted; loopback HTTP; Cypher subset. |
@@ -75,7 +75,7 @@
 |---|--------|----------------|-------------------|-------|
 | 6.1 | CI runs tests on every PR to main | Humans forget; CI doesn’t | **FAIL** | `list_workflows` → **0** workflows. **Backlog high** before public. |
 | 6.2 | Release tip has a green CI run linked in the report | Auditable “we actually ran it” | **FAIL** | No CI. Local green substitute: pytest **93 passed, 11 skipped** on tip `6e25e2f` (box, 2026-10-06 ~15:00 CT). |
-| 6.3 | One command documented to reproduce the smoke locally | Others can verify without tribal knowledge | **PASS** | README: `make wheels` / `pip install` wheel / `graphted-db init|put-node|ls-nodes`. Also `pytest` via `pip install -e ".[dev]"`. |
+| 6.3 | One command documented to reproduce the smoke locally | Others can verify without tribal knowledge | **PASS** | README: `make wheels` / `pip install` wheel / `graph-ted-db init|put-node|ls-nodes`. Also `pytest` via `pip install -e ".[dev]"`. |
 
 ---
 

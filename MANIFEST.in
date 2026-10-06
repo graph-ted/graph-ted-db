@@ -1,2 +1,2 @@
-# Meta package is built from packages/graphted, not shipped inside graphted-db.
+# Meta package is built from packages/graphted, not shipped inside graph-ted-db.
 prune packages

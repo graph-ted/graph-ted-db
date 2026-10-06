@@ -26,7 +26,7 @@ if errorlevel 1 (
   exit /b 1
 )
 
-echo Installing graphted-db ...
+echo Installing graph-ted-db ...
 ".venv\Scripts\python.exe" -m pip install --upgrade pip
 if errorlevel 1 goto :fail
 ".venv\Scripts\python.exe" -m pip install -e ".[dev]"

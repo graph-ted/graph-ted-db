@@ -1,4 +1,4 @@
-# Build local wheels for graphted-db (repo root) and the graphted meta package.
+# Build local wheels for graph-ted-db (repo root) and the graphted meta package.
 # Does not upload to PyPI or TestPyPI.
 #
 # Prerequisite: python -m pip install build

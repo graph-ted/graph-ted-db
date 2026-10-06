@@ -1,8 +1,8 @@
-# graphted-db
+# graph-ted-db
 
 Local property-graph storage for Python. Your data lives in a folder on disk; open it from your process, query it in-process, and optionally sync that folder like any other files. No database server to run for the default path.
 
-**Package:** `graphted-db` · **Import:** `graph_ted_db` · **License:** MIT
+**Package:** `graph-ted-db` · **Import:** `graph_ted_db` · **Repo:** [graph-ted/graph-ted-db](https://github.com/graph-ted/graph-ted-db) · **License:** MIT
 
 Good fit for prototypes, local tools, and small trusted groups that want a property graph next to the app. Choose a server graph database when you need multi-tenant hosting, fine-grained remote auth, or a full Cypher/enterprise feature set.
 

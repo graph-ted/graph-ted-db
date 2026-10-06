@@ -1,4 +1,4 @@
-"""Command-line entry: `graphted-db` (alias `graph-ted-db`)."""
+"""Command-line entry: `graph-ted-db` (alias `graphted-db`)."""
 
 from __future__ import annotations
 
@@ -39,8 +39,9 @@ def _store(path: Path) -> GraphStore:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="graphted-db",
+        prog="graph-ted-db",
         description="Local property-graph storage. Open a folder and query it in-process; no database server for the default path.",
+        epilog="The graphted-db command is the same entry point.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
