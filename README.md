@@ -165,6 +165,10 @@ docs/
   http.md
 ```
 
+## Versioning
+
+This library is pre-1.0 (current version **0.1.0**). Until **1.0.0**, a minor bump may change the on-disk format, the Cypher subset, the localhost HTTP API, or the public Python and CLI surface; those breaks are called out in the release notes for that version. Patch releases keep the same format and API. From **1.0.0** on, breaking changes bump the major version.
+
 ## Development
 
 ```bash
