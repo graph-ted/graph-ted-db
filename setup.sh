@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Create .venv and install graph-ted-db (Python 3.10+).
+# Create .venv and install graphted-db (Python 3.10+).
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -34,4 +34,4 @@ echo "Setup finished."
 echo "  Start the database:     ./serve.sh"
 echo "  Open a CLI prompt:      ./shell.sh"
 echo "  Or in this terminal:    source .venv/bin/activate"
-echo "                          graph-ted-db --help"
+echo "                          graphted-db --help"

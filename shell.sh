@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Open a new shell with .venv on PATH (graph-ted-db, python, pytest).
+# Open a new shell with .venv on PATH (graphted-db, python, pytest).
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -12,7 +12,7 @@ export VIRTUAL_ENV="$PWD/.venv"
 export PATH="$VIRTUAL_ENV/bin:$PATH"
 unset PYTHONHOME
 
-echo "graph-ted-db CLI is ready. Try:  graph-ted-db --help"
+echo "graphted-db CLI is ready. Try:  graphted-db --help"
 echo "Leave this shell with:  exit"
 echo
 exec "${SHELL:-bash}" -i

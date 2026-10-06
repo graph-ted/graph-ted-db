@@ -1,4 +1,4 @@
-"""Command-line entry: `graph-ted-db`."""
+"""Command-line entry: `graphted-db` (alias `graph-ted-db`)."""
 
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ def _store(path: Path) -> GraphStore:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="graph-ted-db",
+        prog="graphted-db",
         description="Local-first graph database (Neo4j/FalkorDB substitute for simple and workgroup use)",
     )
     sub = parser.add_subparsers(dest="command", required=True)

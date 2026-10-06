@@ -29,7 +29,7 @@ You need **Python 3.10+**. Then run the setup script once, then start the databa
 |---|---|---|
 | One-time setup | double-click `setup.bat` | `./setup.sh` |
 | Start the DB | double-click `serve.bat` | `./serve.sh` |
-| CLI prompt (`graph-ted-db …`) | double-click `shell.bat` | `./shell.sh` |
+| CLI prompt (`graphted-db …`) | double-click `shell.bat` | `./shell.sh` |
 
 `serve` listens at **http://127.0.0.1:8099**. With no argument it uses `./my-graph` (created if needed). Pass the **same folder** you use with `put-node` / `ls-nodes`, or curl will talk to a different graph:
 
@@ -52,23 +52,63 @@ On macOS / Linux, if `./setup.sh` is not executable: `chmod +x setup.sh serve.sh
 
 ### Manual install
 
+Editable install from a checkout. The primary console script is `graphted-db`. `graph-ted-db` is the same entry point, kept as an alias. The graph-ted app is unchanged: it still talks to this store through the folder or the localhost HTTP API.
+
 ```bash
 python -m pip install -e ".[dev]"
 
-graph-ted-db init ./my-graph --name demo
+graphted-db init ./my-graph --name demo
 
-graph-ted-db put-node ./my-graph --label Entity --prop name=Alice
+graphted-db put-node ./my-graph --label Entity --prop name=Alice
 # prints a JSON record including "id"
 
-graph-ted-db ls-nodes ./my-graph
-graph-ted-db info ./my-graph
-graph-ted-db doctor ./my-graph
-graph-ted-db cypher ./my-graph 'MATCH (n) RETURN n.name AS name'
-graph-ted-db serve ./my-graph
+graphted-db ls-nodes ./my-graph
+graphted-db info ./my-graph
+graphted-db doctor ./my-graph
+graphted-db cypher ./my-graph 'MATCH (n) RETURN n.name AS name'
+graphted-db serve ./my-graph
 # another terminal:
 #   curl -s http://127.0.0.1:8099/health
 #   curl -s http://127.0.0.1:8099/cypher -H 'Content-Type: application/json' \
 #     -d '{"query":"MATCH (n) RETURN n.name AS name"}'
+```
+
+### Private dry-run (not on PyPI)
+
+Distribution name is **`graphted-db`** (version **0.1.0**). Import package stays **`graph_ted_db`**. These names are not registered on PyPI or TestPyPI. Do not install them from the public index.
+
+A thin meta package **`graphted`** (also **0.1.0**) lives at `packages/graphted/`. It depends on `graphted-db>=0.1.0` and ships no modules. Build both wheels into `./dist` (nothing is uploaded):
+
+```bash
+python -m pip install build
+make wheels
+```
+
+Without Make:
+
+```bash
+python -m build --outdir dist
+python -m build --outdir dist packages/graphted
+```
+
+Install the database wheel by path:
+
+```bash
+python -m pip install /path/to/graphted_db-0.1.0-py3-none-any.whl
+graphted-db --help
+```
+
+Install the database from a private git tag (the repository root is the `graphted-db` project; the tag must already exist, and you need access to the private repo):
+
+```bash
+python -m pip install "git+https://github.com/graph-ted/graph-ted-db.git@v0.1.0"
+```
+
+Install from a local wheelhouse. `--no-index` keeps pip off PyPI. Put both wheels in that directory before installing the meta package (its only dependency is `graphted-db`):
+
+```bash
+python -m pip install --no-index --find-links /path/to/dist graphted-db
+python -m pip install --no-index --find-links /path/to/dist graphted
 ```
 
 From Python:
@@ -101,12 +141,13 @@ See [`docs/format.md`](docs/format.md) for the on-disk spec.
 ## Layout
 
 ```
-graph_ted_db/
+graph_ted_db/          # import package (distribution name: graphted-db)
   store/    # on-disk format, shards, LWW merge
   engine/   # Cypher subset (functions + clauses are registries)
   index/    # local derived catalogs (not synced)
   driver/   # Graphiti GraphTedDbDriver (HTTP URL or in-process folder)
   server/   # localhost HTTP daemon (POST /cypher)
+packages/graphted/     # thin meta distribution `graphted` (depends on graphted-db)
 docs/
   format.md
   cypher.md

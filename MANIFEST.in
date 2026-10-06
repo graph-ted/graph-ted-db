@@ -1,0 +1,2 @@
+# Meta package is built from packages/graphted, not shipped inside graphted-db.
+prune packages

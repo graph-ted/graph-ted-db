@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "graphted"
+version = "0.1.0"
+description = "Thin meta package for the graph-ted kit. Depends on graphted-db and ships no modules."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "graph-ted-db contributors" }]
+dependencies = ["graphted-db>=0.1.0"]
+
+# Pure dependency metapackage: no import package.
+[tool.setuptools]
+packages = []
