@@ -2,9 +2,9 @@
 
 **Format version:** 1
 
-This is the on-disk format of **graph-ted-db**, a local graph database in a folder and the database component of the **graph-ted** kit. A sync client (OneDrive, rclone, abraunegg) may copy, delay, or fork these files. Readers must treat the folder as eventually consistent and merge by record, not by whole file.
+This is the on-disk format of **graph-ted-db**, local property-graph storage for Python and the database component of the **graph-ted** kit. A sync client (OneDrive, rclone, abraunegg) may copy, delay, or fork these files. Readers must treat the folder as eventually consistent and merge by record, not by whole file.
 
-Open a path like a local database file; no server is required. The bytes in that folder are this format.
+The graph is a folder of ordinary files. No database server is required to open it. The bytes in that folder are this format.
 
 Derived indexes (catalog, inverted fulltext, unpacked vectors, adjacency cache) are **not** part of this format. They live outside the graph folder (or in a no-sync sidecar) and must be reconstructable from what is specified here.
 

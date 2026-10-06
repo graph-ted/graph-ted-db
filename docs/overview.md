@@ -1,18 +1,18 @@
 # graphted-db
 
-**A local graph database in a folder.** A file-based graph store you drop into a Python project or prototype: open a path like a local database file, a programmatic API out, no server required.
+Local property-graph storage for Python. Your data lives in a folder on disk; open it from your process, query it in-process, and optionally sync that folder like any other files. No database server to run for the default path.
 
-**Audience:** developers and agents prototyping or shipping simple and trusted-workgroup graph apps without standing up Neo4j. It is a lightweight substitute for Neo4j or FalkorDB in that niche, and it is not a multi-tenant server.
+**Package:** `graphted-db` · **Import:** `graph_ted_db` · **License:** MIT
 
-**This repository** is the database product. Distribution name `graphted-db`, import `graph_ted_db`. Install, open, put, and get are in the [README](../README.md). Public PyPI is not the install path.
+Good fit for prototypes, local tools, and small trusted groups that want a property graph next to the app. Choose a server graph database when you need multi-tenant hosting, fine-grained remote auth, or a full Cypher/enterprise feature set.
 
-**Stack:** graph-ted-db is the foundation of graph-ted Standalone. Hosted graph-ted may use other stores and must not run this one. The database stands on its own; the app is one client. Kit UI, agents, and ontology tooling live in the app repo, not here.
+This repository is the database library only. It is the local store used by [graph-ted](https://github.com/graph-ted/graph-ted) standalone. Hosted deployments may use other backends. Install, the Python API, and the CLI are in the [README](../README.md).
 
-The library stores ordinary files and does not encrypt them. Security is the storage you choose plus whether you expose the network. See [Security](../README.md#security) in the README.
+The library stores ordinary files and does not encrypt them. Security matches the machine and the share. See [Security](../README.md#security) in the README.
 
 ## How-to in this tree
 
-- [README](../README.md) — install, Python quick start, CLI, optional HTTP, building wheels
-- [On-disk format](format.md) — sharded JSONL. Open a path like a local database file; no server required
-- [Cypher subset](cypher.md) — power queries on an open store
+- [README](../README.md) — install, Python quick start, CLI, optional HTTP
+- [On-disk format](format.md) — sharded JSONL in a folder
+- [Cypher subset](cypher.md) — graph-pattern queries on an open store
 - [HTTP](http.md) — optional localhost serve

@@ -40,7 +40,7 @@ def _store(path: Path) -> GraphStore:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="graphted-db",
-        description="Local-first graph database (Neo4j/FalkorDB substitute for simple and workgroup use)",
+        description="Local property-graph storage. Open a folder and query it in-process; no database server for the default path.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 

@@ -1,6 +1,6 @@
 # graphted
 
-Thin meta distribution for the **graph-ted** kit. Installing it pulls in **`graphted-db`**, a local graph database in a folder (no server required). This project ships no importable modules.
+Thin meta distribution for the **graph-ted** kit. Installing it pulls in **`graphted-db`**, local property-graph storage for Python (no database server for the default path). This project ships no importable modules.
 
 | | |
 |---|---|
@@ -9,7 +9,7 @@ Thin meta distribution for the **graph-ted** kit. Installing it pulls in **`grap
 | Depends on | `graphted-db>=0.1.0` |
 | Import package | none |
 
-Not published on PyPI or TestPyPI. The database project (distribution `graphted-db`, import `graph_ted_db`) is the repository root. Private install commands are in the root `README.md`.
+The database project (distribution `graphted-db`, import `graph_ted_db`) is the repository root. Public install for the store is `pip install graphted-db`; see the root `README.md`. This meta package is not on PyPI yet — build and install from a local wheel as below.
 
 Build this wheel from the repository root (writes `dist/` next to the database wheel):
 
