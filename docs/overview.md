@@ -1,6 +1,6 @@
 # graphted-db
 
-**SQLite for graphs.** A local, file-based graph store you drop into a Python project or prototype: a folder in, a programmatic API out, network optional.
+**A local graph database in a folder.** A file-based graph store you drop into a Python project or prototype: open a path like a local database file, a programmatic API out, no server required.
 
 **Audience:** developers and agents prototyping or shipping simple and trusted-workgroup graph apps without standing up Neo4j. It is a lightweight substitute for Neo4j or FalkorDB in that niche, and it is not a multi-tenant server.
 
@@ -12,7 +12,7 @@ The library stores ordinary files and does not encrypt them. Security is the sto
 
 ## How-to in this tree
 
-- [README](../README.md) — install, Python open/put/get, CLI, optional HTTP, private wheels
-- [On-disk format](format.md) — sharded JSONL. The folder is not a SQLite database file
+- [README](../README.md) — install, Python quick start, CLI, optional HTTP, building wheels
+- [On-disk format](format.md) — sharded JSONL. Open a path like a local database file; no server required
 - [Cypher subset](cypher.md) — power queries on an open store
 - [HTTP](http.md) — optional localhost serve

@@ -1,4 +1,4 @@
-"""SQLite for graphs: local file-based graph store (import graph_ted_db)."""
+"""Local graph database in a folder: open a path, no server required (import graph_ted_db)."""
 
 from graph_ted_db.engine import CypherError
 from graph_ted_db.store import GraphStore, init_graph

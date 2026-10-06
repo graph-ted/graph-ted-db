@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "graphted-db"
 version = "0.1.0"
-description = "SQLite for graphs: a local file-based graph store and lightweight Neo4j/FalkorDB substitute for simple, prototype, and trusted workgroup use"
+description = "Local graph database in a folder: open a path like a local database file, no server required. Lightweight Neo4j/FalkorDB substitute for simple, prototype, and trusted workgroup use"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
