@@ -127,7 +127,7 @@ WSL2 `127.0.0.1` is the Linux VM, not Windows. A Windows `serve` bound to `127.0
 2. On **Windows**, bind all interfaces and pass a token (`--host 0.0.0.0` without `--token` or `GRAPH_TED_DB_TOKEN` is refused):
 
 ```bat
-graph-ted-db serve --host 0.0.0.0 --token dev-secret D:\graphs\test-graph
+graph-ted-db serve --host 0.0.0.0 --token YOUR_TOKEN_HERE D:\graphs\test-graph
 ```
 
 3. In **WSL**, curl the Windows host, not localhost. `GET /health` stays open; other routes need the token:
