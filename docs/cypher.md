@@ -1,6 +1,6 @@
 # Cypher subset
 
-graph-ted-db speaks a **documented subset** of Cypher so graph-ted helpers (and Graphiti’s Neo4j dialect, later) can run against a folder. This is not openCypher and not Neo4j.
+Power queries on a graph-ted-db folder. Everyday open / put / get is the Python store API in the [README](../README.md). graph-ted-db also speaks a **documented subset** of Cypher so graph-ted helpers (and Graphiti’s Neo4j dialect, later) can run against a folder. This is not openCypher and not Neo4j.
 
 Unsupported syntax raises `CypherError` with a source position. Prefer adding to this engine over rewriting queries in graph-ted.
 

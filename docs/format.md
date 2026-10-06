@@ -2,7 +2,9 @@
 
 **Format version:** 1
 
-This is the on-disk format of **graph-ted-db**, the database component of the **graph-ted** kit. A sync client (OneDrive, rclone, abraunegg) may copy, delay, or fork these files. Readers must treat the folder as eventually consistent and merge by record, not by whole file.
+This is the on-disk format of **graph-ted-db**, a local file graph store (“SQLite for graphs”) and the database component of the **graph-ted** kit. A sync client (OneDrive, rclone, abraunegg) may copy, delay, or fork these files. Readers must treat the folder as eventually consistent and merge by record, not by whole file.
+
+“SQLite for graphs” is the usage niche: open one local folder from your process. The bytes in that folder are this format, not a SQLite database file.
 
 Derived indexes (catalog, inverted fulltext, unpacked vectors, adjacency cache) are **not** part of this format. They live outside the graph folder (or in a no-sync sidecar) and must be reconstructable from what is specified here.
 

@@ -1,6 +1,6 @@
 # graphted
 
-Thin meta distribution for the **graph-ted** kit. Installing it pulls in **`graphted-db`**. This project ships no importable modules.
+Thin meta distribution for the **graph-ted** kit. Installing it pulls in **`graphted-db`**, the local file graph store (SQLite for graphs). This project ships no importable modules.
 
 | | |
 |---|---|

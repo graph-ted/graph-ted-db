@@ -1,6 +1,6 @@
 # HTTP daemon
 
-Localhost JSON over HTTP so graph-ted (and anything else) can run Cypher without importing `graph_ted_db`. One process owns the graph folder and the process lock. This is not Bolt and not a hosted multi-tenant server.
+Optional. Everyday open / put / get is the in-process Python API in the [README](../README.md) (`GraphStore.open`, `make_node`, `get_node`). This daemon is localhost JSON over HTTP so graph-ted (and anything else) can run Cypher without importing `graph_ted_db`. One process owns the graph folder and the process lock. This is not Bolt and not a hosted multi-tenant server.
 
 Default bind: `127.0.0.1:8099` (not 7474/7687, so it can sit next to Neo4j on the same machine).
 
