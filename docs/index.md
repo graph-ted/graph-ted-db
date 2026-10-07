@@ -10,6 +10,7 @@ Your graph lives in a folder on disk. Open it from your process, read and write 
 
 [Get started](getting-started.md){ .md-button .md-button--primary }
 [API overview](overview.md){ .md-button }
+[Python API](api.md){ .md-button }
 
 ## What you get
 

@@ -51,6 +51,19 @@ and db). The 32px favicon stem is about 1.1px, and the 16px favicon stem
 is about 0.6px. The letters are thin at those sizes. The wordmark stays
 EB Garamond.
 
+## Docs theme
+
+The MkDocs stylesheet is generated from `docs/theme/tokens.json`:
+
+```bash
+python scripts/sync_tokens.py
+python scripts/sync_tokens.py --check
+```
+
+Re-sync from the app repository (`frontend/` in `graph-ted/graph-ted`) is documented in `docs/theme/README.md`. The tokens were last synced from ref `7675086`: the font stack, Chakra's radii, spacing, and light/dark shadows (the app extends Chakra's `defaultConfig`), and the `react-icons` package. Colors and the navbar size below are the values the stylesheet uses.
+
+The header row is 81px tall and the logo image is 72px tall, matching the app navbar and its mark. Logo SVG files, the favicon, and the header logo asset are unchanged; only the spacing around the existing logo is set in CSS.
+
 ## Docs text
 
 Inter, self-hosted, so the site does not call Google Fonts.

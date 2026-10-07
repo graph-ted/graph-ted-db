@@ -12,8 +12,11 @@ Open **http://127.0.0.1:8000** in your browser. Edits under `docs/` reload autom
 Build a static site (optional):
 
 ```bash
-mkdocs build
+python scripts/sync_tokens.py --check
+mkdocs build --strict
 # output in site/ — open site/index.html or serve that folder
 ```
+
+`site/llms.txt` and `site/llms-full.txt` are written by the build. Design tokens live in `docs/theme/tokens.json`; see `docs/theme/README.md` to regenerate the stylesheet or re-sync from the app checkout.
 
 This does **not** publish anything. GitHub Pages / graph-ted.com/db come later when you green-light public hosting.

@@ -10,7 +10,8 @@ wheels:
 
 # Local MkDocs preview. Does not publish.
 docs:
-	mkdocs build
+	python scripts/sync_tokens.py --check
+	mkdocs build --strict
 
 docs-serve:
 	mkdocs serve
