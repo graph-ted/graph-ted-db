@@ -63,12 +63,30 @@ def apply_txn(store: GraphStore, txn: int) -> None:
 
 
 def _write_intent(path: Path, txn: int) -> None:
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+    """Publish the in-flight transaction id atomically.
+
+    Truncating ``intent`` in place lets a SIGKILL land between the truncate
+    and the write, which leaves an empty file. A temp file, fsync, and
+    ``os.replace`` publishes either the previous id or the new one.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    payload = str(txn).encode("ascii")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
     try:
-        os.write(fd, str(txn).encode("ascii"))
+        view = memoryview(payload)
+        while view:
+            written = os.write(fd, view)
+            view = view[written:]
         os.fsync(fd)
     finally:
         os.close(fd)
+    os.replace(tmp, path)
+    dirfd = os.open(path.parent, os.O_RDONLY)
+    try:
+        os.fsync(dirfd)
+    finally:
+        os.close(dirfd)
 
 
 def main(argv: list[str]) -> None:

@@ -18,6 +18,7 @@ from tests.crash_worker import (
     DROP_SEQ,
     KEEP_EDGE_SEQ,
     KEEP_SEQS,
+    _write_intent,
     apply_one,
     apply_txn,
     record_id,
@@ -123,9 +124,39 @@ def _run(
     out = (first + proc.stdout.read()).decode("utf-8", errors="replace")
     err = proc.stderr.read().decode("utf-8", errors="replace")
     acked = {int(line) for line in out.splitlines() if line.strip().isdigit()}
-    intent_path = data / "intent"
-    intent = int(intent_path.read_text()) if intent_path.is_file() else None
+    intent = _read_intent(data / "intent")
     return acked, intent, proc.returncode or 0, err
+
+
+def _read_intent(path: Path) -> int | None:
+    """In-flight transaction id, or None if the kill landed before it was published.
+
+    A missing or empty file is not a transaction. Store checks stay the same:
+    every acknowledged commit must be complete, and any other id is a failure
+    unless this returns that id and the store shows it wholly present or absent.
+    """
+    if not path.is_file():
+        return None
+    raw = path.read_text()
+    if not raw.strip():
+        return None
+    return int(raw)
+
+
+def test_intent_publish_and_empty_read(tmp_path: Path):
+    missing = tmp_path / "missing"
+    assert _read_intent(missing) is None
+    path = tmp_path / "intent"
+    path.write_text("")
+    assert _read_intent(path) is None
+    path.write_text(" \n")
+    assert _read_intent(path) is None
+    _write_intent(path, 3)
+    assert _read_intent(path) == 3
+    assert not (tmp_path / "intent.tmp").exists()
+    _write_intent(path, 4)
+    assert path.read_bytes() == b"4"
+    assert _read_intent(path) == 4
 
 
 def test_transaction_fsyncs_each_file_once(tmp_path: Path, monkeypatch):
