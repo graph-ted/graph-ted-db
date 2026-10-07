@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from collections import defaultdict
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -104,6 +105,11 @@ class GraphStore(_GraphStoreAliases):
         self._wal_dir = wal_dir_for(self.meta.id, data_dir)
         self._tx: _Txn | None = None
         self._lock_depth = 0
+        # flock serializes other processes. It does not cover the
+        # _lock_depth short-circuit: a second thread in this process saw a
+        # non-zero depth and entered the critical section beside the holder.
+        # The RLock makes that check and _tx per-thread re-entrant only.
+        self._thread_lock = threading.RLock()
         self.skipped_lines: list[str] = []
 
     @classmethod
@@ -117,19 +123,20 @@ class GraphStore(_GraphStoreAliases):
 
     @contextmanager
     def _lock(self):
-        if self._lock_depth:
-            self._lock_depth += 1
-            try:
-                yield
-            finally:
-                self._lock_depth -= 1
-            return
-        with exclusive_lock(self._lock_path):
-            self._lock_depth = 1
-            try:
-                yield
-            finally:
-                self._lock_depth = 0
+        with self._thread_lock:
+            if self._lock_depth:
+                self._lock_depth += 1
+                try:
+                    yield
+                finally:
+                    self._lock_depth -= 1
+                return
+            with exclusive_lock(self._lock_path):
+                self._lock_depth = 1
+                try:
+                    yield
+                finally:
+                    self._lock_depth = 0
 
     # --- nodes ---
 

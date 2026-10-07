@@ -8,6 +8,7 @@ Install graphiti-core in the process that constructs this driver.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Coroutine
 from pathlib import Path
 from typing import Any
@@ -75,9 +76,12 @@ class GraphTedDbSession(GraphDriverSession):
                 statements = [
                     (str(cypher), dict(params or {})) for cypher, params in query
                 ]
-                post_cypher_many(self.driver._http, statements)
+                await asyncio.to_thread(
+                    post_cypher_many, self.driver._http, statements
+                )
             else:
-                post_cypher(
+                await asyncio.to_thread(
+                    post_cypher,
                     self.driver._http,
                     str(query),
                     _params_from_kwargs(kwargs),
@@ -86,10 +90,22 @@ class GraphTedDbSession(GraphDriverSession):
         assert self.store is not None
         if isinstance(query, list):
             for cypher, params in query:
-                self.store.execute(str(cypher), dict(params or {}))
+                await self._execute_store(cypher, dict(params or {}))
             return None
-        self.store.execute(str(query), _params_from_kwargs(kwargs))
+        await self._execute_store(query, _params_from_kwargs(kwargs))
         return None
+
+    async def _execute_store(self, query: str, params: dict[str, Any]) -> list:
+        """Run Cypher off the event loop, unless this thread already holds the store lock.
+
+        ``execute_write`` keeps the file lock on the loop thread and calls
+        ``run`` from there. Moving that call to a worker would see the lock
+        as re-entrant and corrupt ``_lock_depth``.
+        """
+        assert self.store is not None
+        if self.store._tx is not None or self.store._lock_depth:
+            return self.store.execute(str(query), params)
+        return await asyncio.to_thread(self.store.execute, str(query), params)
 
     async def execute_write(self, func, *args, **kwargs):
         if self.driver._http:
@@ -99,7 +115,9 @@ class GraphTedDbSession(GraphDriverSession):
                 statements = self._batch
                 self._batch = None
                 if statements:
-                    post_cypher_many(self.driver._http, statements)
+                    await asyncio.to_thread(
+                        post_cypher_many, self.driver._http, statements
+                    )
                 return result
             except Exception:
                 self._batch = None
@@ -141,7 +159,8 @@ class GraphTedDbDriver(GraphDriver):
     async def execute_query(self, cypher_query_, **kwargs: Any):
         params = _params_from_kwargs(kwargs)
         if self._http:
-            rows = post_cypher(
+            rows = await asyncio.to_thread(
+                post_cypher,
                 self._http,
                 str(cypher_query_),
                 params,
@@ -149,7 +168,12 @@ class GraphTedDbDriver(GraphDriver):
             )
             return rows, None, None
         assert self.store is not None
-        rows = self.store.execute(str(cypher_query_), params)
+        if self.store._tx is not None or self.store._lock_depth:
+            rows = self.store.execute(str(cypher_query_), params)
+        else:
+            rows = await asyncio.to_thread(
+                self.store.execute, str(cypher_query_), params
+            )
         return rows, None, None
 
     def session(self, database: str | None = None) -> GraphTedDbSession:
@@ -171,12 +195,14 @@ class GraphTedDbDriver(GraphDriver):
     async def verify_connectivity(self) -> None:
         if self._http:
             try:
-                get_health(self._http)
+                await asyncio.to_thread(get_health, self._http)
                 return
             except ValueError:
-                rows = post_cypher(self._http, "RETURN 1 AS ok")
+                rows = await asyncio.to_thread(
+                    post_cypher, self._http, "RETURN 1 AS ok"
+                )
         else:
             assert self.store is not None
-            rows = self.store.execute("RETURN 1 AS ok")
+            rows = await asyncio.to_thread(self.store.execute, "RETURN 1 AS ok")
         if not rows or rows[0].get("ok") not in (1, "1"):
             raise RuntimeError("graph-ted-db connectivity check failed")

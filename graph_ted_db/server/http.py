@@ -30,6 +30,9 @@ logger = logging.getLogger("graph_ted_db.server")
 
 
 class GraphTedHTTPServer(ThreadingHTTPServer):
+    # One thread per request. Concurrent /cypher calls share one GraphStore;
+    # store._lock (threading.RLock plus the process file lock) serializes
+    # execute and transactions so _tx and _lock_depth stay single-threaded.
     # False: on Windows, SO_REUSEADDR lets a second serve bind 8099 while an
     # old process still owns the port; curl then hits the leftover graph.
     allow_reuse_address = False
