@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/assets/logo-hero.png" alt="graph-ted-db" width="340" height="116">
+</p>
+
 # graph-ted-db
 
 Local property-graph storage for Python. Your data lives in a folder on disk; open it from your process, query it in-process, and optionally sync that folder like any other files. No database server to run for the default path.

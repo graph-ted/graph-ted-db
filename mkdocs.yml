@@ -7,6 +7,10 @@ edit_uri: ""
 
 theme:
   name: material
+  # 96px-tall @2x of the 48px nav wordmark. Header CSS displays it at 2rem.
+  logo: assets/logo-nav-2x.png
+  # Multi-resolution ICO (16/32/48). 32px PNG sibling: docs/assets/favicon-32.png
+  favicon: assets/favicon.ico
   palette:
     - scheme: default
       primary: indigo
@@ -48,3 +52,6 @@ markdown_extensions:
 
 plugins:
   - search
+
+extra_css:
+  - stylesheets/extra.css

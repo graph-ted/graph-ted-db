@@ -1,0 +1,23 @@
+/* Material sizes a header logo at 1.2rem (~19px), which collapses this
+   three-circle wordmark. 2rem (32px) stays in the nav size range and fits
+   the bar. The file is the 96px @2x asset, so retina stays sharp. */
+.md-header__button.md-logo {
+  margin-top: 0.1rem;
+  margin-bottom: 0.1rem;
+  padding-top: 0.15rem;
+  padding-bottom: 0.15rem;
+}
+
+.md-header__button.md-logo img {
+  height: 2rem;
+  width: auto;
+}
+
+/* Native 340×116 hero. Wide layouts must not upscale past the source. */
+.md-typeset .gt-hero {
+  display: block;
+  width: 340px;
+  max-width: 100%;
+  height: auto;
+  margin: 0.25rem auto 1.25rem;
+}
