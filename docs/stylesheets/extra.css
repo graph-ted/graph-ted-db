@@ -1,19 +1,142 @@
-/* Material sizes a header logo at 1.2rem (~19px), which collapses this
-   three-circle wordmark. 2rem (32px) stays in the nav size range and fits
-   the bar. The file is the 96px @2x asset, so retina stays sharp. */
+/* Brand #009999 is the wordmark and large surfaces. It is 3.49:1 on white,
+   so it is not used for text. Interactive #007A7A is the header, links,
+   buttons, and focus rings: 5.17:1 with white, both ways.
+   On slate (#1e2129) #007A7A is only 3.12:1, so dark-scheme links and
+   the content focus color use #33CCCC (8.16:1 on that background). */
+
+/* Docs text is Inter (variable, roman + italic). Code is JetBrains Mono
+   at the weights Material used to request (400 and 700, with italics).
+   Both are OFL and live in ../assets/fonts/ with their license texts.
+   theme.font is false, so these variables replace the Google Fonts block. */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("../assets/fonts/InterVariable.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Inter";
+  font-style: italic;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("../assets/fonts/InterVariable-Italic.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("../assets/fonts/JetBrainsMono-Regular.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url("../assets/fonts/JetBrainsMono-Italic.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("../assets/fonts/JetBrainsMono-Bold.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: italic;
+  font-weight: 700;
+  font-display: swap;
+  src: url("../assets/fonts/JetBrainsMono-BoldItalic.woff2") format("woff2");
+}
+
+:root {
+  --md-text-font: "Inter";
+  --md-code-font: "JetBrains Mono";
+}
+
+[data-md-color-scheme="default"] {
+  --md-primary-fg-color: #007a7a;
+  --md-primary-fg-color--light: #009999;
+  --md-primary-fg-color--dark: #006666;
+  --md-primary-bg-color: #ffffff;
+  --md-primary-bg-color--light: #ffffffb3;
+  --md-accent-fg-color: #007a7a;
+  --md-accent-fg-color--transparent: #007a7a1a;
+  --md-accent-bg-color: #ffffff;
+  --md-accent-bg-color--light: #ffffffb3;
+  --md-typeset-a-color: #007a7a;
+}
+
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color: #007a7a;
+  --md-primary-fg-color--light: #009999;
+  --md-primary-fg-color--dark: #006666;
+  --md-primary-bg-color: #ffffff;
+  --md-primary-bg-color--light: #ffffffb3;
+  --md-accent-fg-color: #33cccc;
+  --md-accent-fg-color--transparent: #33cccc1a;
+  --md-accent-bg-color: #ffffff;
+  --md-accent-bg-color--light: #ffffffb3;
+  --md-typeset-a-color: #33cccc;
+}
+
+/* The top bar is about 48–50px. 44px leaves a few pixels of the bar
+   above and below the circles. The logo is an SVG, so it stays sharp.
+   Material hides this control under ~1220px; keep it visible so the
+   wordmark fills the short mobile bar too. */
 .md-header__button.md-logo {
-  margin-top: 0.1rem;
-  margin-bottom: 0.1rem;
-  padding-top: 0.15rem;
-  padding-bottom: 0.15rem;
+  margin: 3px 0.2rem;
+  padding: 0 2px;
+}
+
+@media screen and (max-width: 76.234375em) {
+  .md-header__button.md-logo {
+    display: inline-block;
+  }
+}
+
+/* Focus ring on the #007A7A bar. The accent teal matches the bar, so the
+   ring is white (5.17:1 on #007A7A). */
+.md-header__button {
+  outline-color: #ffffff;
+}
+
+/* Outline buttons use the primary color, which is 3.12:1 on slate.
+   Resting text and border follow the lighter link teal. Hover fills
+   with #007A7A so the label stays white (5.17:1) instead of white on
+   #33CCCC (1.97:1). */
+[data-md-color-scheme="slate"] .md-typeset .md-button {
+  color: #33cccc;
+  border-color: #33cccc;
+}
+
+[data-md-color-scheme="slate"] .md-typeset .md-button--primary {
+  background-color: #007a7a;
+  border-color: #007a7a;
+  color: #ffffff;
+}
+
+[data-md-color-scheme="slate"] .md-typeset .md-button:focus,
+[data-md-color-scheme="slate"] .md-typeset .md-button:hover {
+  background-color: #007a7a;
+  border-color: #007a7a;
+  color: #ffffff;
 }
 
 .md-header__button.md-logo img {
-  height: 2rem;
+  height: 44px;
   width: auto;
 }
 
-/* Native 340×116 hero. Wide layouts must not upscale past the source. */
+/* Hero wordmark. 340px matches the previous frame so the layout
+   does not jump; the SVG viewBox sets the height. */
 .md-typeset .gt-hero {
   display: block;
   width: 340px;

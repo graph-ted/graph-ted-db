@@ -7,18 +7,28 @@ edit_uri: ""
 
 theme:
   name: material
-  # 96px-tall @2x of the 48px nav wordmark. Header CSS displays it at 2rem.
-  logo: assets/logo-nav-2x.png
-  # Multi-resolution ICO (16/32/48). 32px PNG sibling: docs/assets/favicon-32.png
-  favicon: assets/favicon.ico
+  custom_dir: overrides
+  # Skip Google Fonts. Inter and JetBrains Mono are self-hosted from
+  # docs/stylesheets/extra.css. Material's privacy plugin still fetches
+  # fonts.googleapis.com during the build, so committed woff2 files keep
+  # `mkdocs build --strict` offline.
+  font: false
+  # White strokes. #009999 on the #007A7A header is 1.48:1, so an <img>
+  # logo cannot use the themeable file (page CSS does not cross into it).
+  logo: assets/logo-light-stroke.svg
+  # SVG icon, plus docs/overrides/main.html adds favicon.ico for older clients.
+  # 32px PNG sibling: docs/assets/favicon-32.png
+  favicon: assets/favicon.svg
   palette:
     - scheme: default
-      primary: indigo
+      primary: custom
+      accent: custom
       toggle:
         icon: material/brightness-7
         name: Dark mode
     - scheme: slate
-      primary: indigo
+      primary: custom
+      accent: custom
       toggle:
         icon: material/brightness-4
         name: Light mode

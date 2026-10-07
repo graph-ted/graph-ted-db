@@ -1,0 +1,36 @@
+{
+  "font": {
+    "family": "EB Garamond",
+    "style": "Regular",
+    "version": "1.002",
+    "version_string": "Version 1.002; ttfautohint (v1.8.4.16-eb64)",
+    "unique_name": "1.002;PfEd;EBGaramond-Regular",
+    "source": "https://github.com/octaviopardo/EBGaramond12/raw/master/fonts/ttf/EBGaramond-Regular.ttf",
+    "license": "SIL Open Font License, Version 1.1",
+    "license_note": "OFL 1.1 allows these outlined glyphs in the SVG. The font file itself is not committed. Pass it with --font. Do not sell the font alone, and keep the EB Garamond name only for the unmodified font."
+  },
+  "base_font_size": 10.763,
+  "words": {
+    "graph": {
+      "scale": 0.935,
+      "letter_spacing": 0.5,
+      "dx": 0.05,
+      "dy": 0.03,
+      "stroke": 0.1
+    },
+    "ted": {
+      "scale": 0.9712,
+      "letter_spacing": 0.1938,
+      "dx": -0.075,
+      "dy": 0.0,
+      "stroke": 0.1017
+    },
+    "db": {
+      "scale": 0.94,
+      "letter_spacing": 0.2743,
+      "dx": 0.0,
+      "dy": 0.04,
+      "stroke": 0.14
+    }
+  }
+}

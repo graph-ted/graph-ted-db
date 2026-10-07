@@ -1,4 +1,4 @@
-<p><img class="gt-hero" alt="graph-ted-db" src="assets/logo-hero.png" width="340" height="116"></p>
+<p><img class="gt-hero" alt="graph-ted-db" src="assets/logo.svg" width="340" height="116"></p>
 
 # graph-ted-db
 

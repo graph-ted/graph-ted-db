@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/logo-hero.png" alt="graph-ted-db" width="340" height="116">
+  <img src="docs/assets/logo-readme.png" alt="graph-ted-db" width="340" height="116">
 </p>
 
 # graph-ted-db
