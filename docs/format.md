@@ -92,6 +92,8 @@ Lines that are not valid JSON objects are skipped and should be reported by `gra
 
 A hard halt can leave a shard **without a trailing newline** (a torn last line). Readers still skip that fragment, but a later append would concatenate a new record onto it and both lines would fail to parse. Before every append, and on `GraphStore.open` / `doctor`, writers **truncate** from the last newline (or to empty). The incomplete tail is discarded; every complete line is kept. That is format recovery, not LWW.
 
+A transaction that writes several records appends its lines and then flush+fsyncs each file once. A local write-ahead record is fsynced before those shard writes and removed only after the shard fsync. If the process dies before that record is durable, the transaction is absent. If it dies after the record is durable but before the shard fsync finishes, the next open replays the record so the transaction is complete. An autocommit statement that writes one record fsyncs that line and does not write a separate commit record: the line is present, or a torn tail is truncated and the record is absent. A torn final line is not returned as a record.
+
 ## Node record
 
 Path: `nodes/<shard>.jsonl`

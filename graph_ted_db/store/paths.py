@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -96,14 +97,32 @@ def shard_jsonl_files(directory: Path, canonical_stem: str) -> list[Path]:
     if not directory.is_dir():
         return []
     found: list[Path] = []
-    canonical = directory / f"{canonical_stem}.jsonl"
+    canonical_name = f"{canonical_stem}.jsonl"
+    canonical = directory / canonical_name
     if canonical.is_file():
         found.append(canonical)
-    for child in sorted(directory.iterdir()):
-        if child == canonical:
-            continue
-        if child.is_file() and is_conflict_copy(child, canonical_stem):
-            found.append(child)
+    stem = canonical_stem.lower()
+    conflicts: list[Path] = []
+    try:
+        entries = os.scandir(directory)
+    except OSError:
+        return found
+    with entries:
+        for entry in entries:
+            name = entry.name
+            if name == canonical_name:
+                continue
+            lowered = name.lower()
+            if not lowered.endswith(".jsonl"):
+                continue
+            if name.endswith(".tmp") or name.startswith("~$") or name.startswith("."):
+                continue
+            if not (lowered.startswith(stem) or stem in lowered):
+                continue
+            child = directory / name
+            if is_conflict_copy(child, canonical_stem):
+                conflicts.append(child)
+    found.extend(sorted(conflicts))
     return found
 
 

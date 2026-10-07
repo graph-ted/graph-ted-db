@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import signal
 import threading
 from collections import defaultdict
 from collections.abc import Iterator
@@ -20,7 +22,10 @@ from graph_ted_db.store.format import (
 )
 from graph_ted_db.store.init import load_graph_meta
 from graph_ted_db.store.jsonl import (
+    append_batch,
     append_jsonl,
+    crash_if,
+    fsync_directory,
     iter_json_objects,
     repair_torn_jsonl,
     replace_json_file,
@@ -111,6 +116,12 @@ class GraphStore(_GraphStoreAliases):
         # The RLock makes that check and _tx per-thread re-entrant only.
         self._thread_lock = threading.RLock()
         self.skipped_lines: list[str] = []
+        # While a transaction is being applied, label updates are held here
+        # and written once. None means each caller writes labels immediately.
+        self._label_acc: tuple[set[str], set[str], set[str]] | None = None
+        # Paths touched while a multi-record commit is applied. The fingerprint
+        # is updated from these after fsync, instead of scanning every shard.
+        self._fp_pending: list[Path] | None = None
 
     @classmethod
     def open(cls, root: str | Path, *, data_dir: Path | None = None) -> GraphStore:
@@ -154,11 +165,12 @@ class GraphStore(_GraphStoreAliases):
         self._disk_put_node(record)
 
     def _disk_put_node(self, record: NodeRecord) -> None:
-        append_jsonl(self.paths.node_shard(record.id), record.to_jsonl())
-        self._note_labels(node_labels=record.labels)
+        path = self.paths.node_shard(record.id)
+        append_jsonl(path, record.to_jsonl())
+        self._remember_labels(node_labels=record.labels)
         if self._index is not None:
             self._index.upsert_node(record)
-        self._note_index_current()
+        self._touch_index(path)
 
     def get_node(self, record_id: str) -> NodeRecord | None:
         record_id = normalize_uuid(record_id)
@@ -213,7 +225,7 @@ class GraphStore(_GraphStoreAliases):
         self._disk_delete_tomb(tomb)
         if self._index is not None:
             self._index.remove_node(record_id)
-        self._note_index_current()
+        self._touch_index(self.paths.deleted_jsonl)
         return tomb
 
     def iter_nodes(self) -> Iterator[NodeRecord]:
@@ -241,11 +253,12 @@ class GraphStore(_GraphStoreAliases):
         self._disk_put_edge(record)
 
     def _disk_put_edge(self, record: EdgeRecord) -> None:
-        append_jsonl(self.paths.edge_shard(record.id), record.to_jsonl())
-        self._note_labels(relationship_types=(record.type,))
+        path = self.paths.edge_shard(record.id)
+        append_jsonl(path, record.to_jsonl())
+        self._remember_labels(relationship_types=(record.type,))
         if self._index is not None:
             self._index.upsert_edge(record)
-        self._note_index_current()
+        self._touch_index(path)
 
     def get_edge(self, record_id: str) -> EdgeRecord | None:
         record_id = normalize_uuid(record_id)
@@ -286,7 +299,7 @@ class GraphStore(_GraphStoreAliases):
         self._disk_delete_tomb(tomb)
         if self._index is not None:
             self._index.remove_edge(record_id)
-        self._note_index_current()
+        self._touch_index(self.paths.deleted_jsonl)
         return tomb
 
     def iter_edges(self) -> Iterator[EdgeRecord]:
@@ -308,12 +321,10 @@ class GraphStore(_GraphStoreAliases):
         self._disk_put_vector(record)
 
     def _disk_put_vector(self, record: VectorRecord) -> None:
-        append_jsonl(
-            self.paths.vector_shard(record.property, record.id),
-            record.to_jsonl(),
-        )
-        self._note_labels(vector_properties=(record.property,))
-        self._note_index_current()
+        path = self.paths.vector_shard(record.property, record.id)
+        append_jsonl(path, record.to_jsonl())
+        self._remember_labels(vector_properties=(record.property,))
+        self._touch_index(path)
 
     def get_vector(self, property_name: str, record_id: str) -> VectorRecord | None:
         if not is_vector_property_name(property_name):
@@ -343,7 +354,7 @@ class GraphStore(_GraphStoreAliases):
         )
         with self._lock():
             append_jsonl(self.paths.deleted_jsonl, tomb.to_jsonl())
-            self._note_index_current()
+            self._touch_index(self.paths.deleted_jsonl)
         return tomb
 
     # --- helpers for callers ---
@@ -465,18 +476,48 @@ class GraphStore(_GraphStoreAliases):
         self._tx = None
         if not ops:
             return
-        self._wal_dir.mkdir(parents=True, exist_ok=True)
-        wal = self._wal_dir / f"{uuid4()}.jsonl"
-        replace_jsonl(wal, [_wal_encode(op) for op in ops])
-        self._apply_ops_unlocked(ops)
-        try:
-            wal.unlink()
-        except OSError:
-            pass
+        # One record needs no separate commit file. The fsynced line is the
+        # whole transaction; a torn tail is truncated and is not a record.
+        if len(ops) == 1:
+            self._apply_ops_unlocked(ops)
+            return
+        # Several records: fsync one commit record before any shard byte,
+        # append the lines, fsync each touched file once, then drop the record.
+        # The record lives in one reused file so later commits do not create
+        # a new directory entry.
+        crash_if("before-wal")
+        wal = self._publish_wal(ops)
+        crash_if("after-wal")
+        self._apply_ops_durable(ops)
+        crash_if("before-unlink")
+        self._clear_wal(wal)
 
     def _rollback_unlocked(self) -> None:
         self._tx = None
         self._rebuild_index_unlocked()
+
+    def _apply_ops_durable(self, ops: list[tuple[str, Any]]) -> None:
+        """Append every op, then flush and fsync each file once."""
+        self._label_acc = (set(), set(), set())
+        self._fp_pending = []
+        try:
+            with append_batch():
+                for index, op in enumerate(ops):
+                    self._apply_ops_unlocked([op])
+                    if index == 0 and len(ops) > 1:
+                        crash_if("mid-apply")
+                labels, types, vecs = self._label_acc
+                self._label_acc = None
+                if labels or types or vecs:
+                    self._note_labels(
+                        node_labels=labels,
+                        relationship_types=types,
+                        vector_properties=vecs,
+                    )
+            self._note_pending_files()
+        finally:
+            self._label_acc = None
+            self._fp_pending = None
 
     def _apply_ops_unlocked(self, ops: list[tuple[str, Any]]) -> None:
         for kind, payload in ops:
@@ -494,17 +535,46 @@ class GraphStore(_GraphStoreAliases):
                     elif kind == "delete_edge":
                         self._index.remove_edge(payload.id)
 
+    def _wal_file(self) -> Path:
+        return self._wal_dir / "current.jsonl"
+
+    def _publish_wal(self, ops: list[tuple[str, Any]]) -> Path:
+        """Append one checksummed commit record and fsync that file.
+
+        ``wal-fsync`` dies before the bytes are installed, so a kill there
+        leaves the transaction absent. A torn tail has no checksum and is
+        not a commit.
+        """
+        self._wal_dir.mkdir(parents=True, exist_ok=True)
+        path = self._wal_file()
+        created = not path.exists()
+        if os.environ.get("GRAPH_TED_DB_CRASH_AT") == "wal-fsync":
+            os.kill(os.getpid(), signal.SIGKILL)
+        lines = [_wal_encode(op) for op in ops]
+        lines.append(json.dumps({"op": "commit", "n": len(ops)}, separators=(",", ":")))
+        payload = "".join(line.rstrip("\n") + "\n" for line in lines).encode("utf-8")
+        with path.open("ab") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        if created:
+            fsync_directory(path.parent)
+        return path
+
+    def _clear_wal(self, path: Path) -> None:
+        path.write_bytes(b"")
+
     def _replay_wal_unlocked(self) -> None:
         if not self._wal_dir.is_dir():
             return
         for path in sorted(self._wal_dir.glob("*.jsonl")):
-            ops: list[tuple[str, Any]] = []
-            for _, obj in iter_json_objects(path):
-                decoded = _wal_decode(obj)
-                if decoded is not None:
-                    ops.append(decoded)
-            if ops:
-                self._apply_ops_unlocked(ops)
+            # A torn tail is not a commit. Only a checksummed group is applied,
+            # so a crash keeps or drops each transaction as a whole.
+            repair_torn_jsonl(path)
+            groups = _wal_groups(path)
+            if groups:
+                for ops in groups:
+                    self._apply_ops_durable(ops)
             try:
                 path.unlink()
             except OSError:
@@ -512,7 +582,7 @@ class GraphStore(_GraphStoreAliases):
 
     def _disk_delete_tomb(self, tomb: Tombstone) -> None:
         append_jsonl(self.paths.deleted_jsonl, tomb.to_jsonl())
-        self._note_index_current()
+        self._touch_index(self.paths.deleted_jsonl)
 
     def compact(self) -> None:
         """Rewrite canonical shards to winning records. Leaves conflict copies."""
@@ -559,27 +629,78 @@ class GraphStore(_GraphStoreAliases):
         if self._index is None or fingerprint != self._index_fp:
             self._rebuild_index_unlocked()
 
+    def _touch_index(self, path: Path | None = None) -> None:
+        # A multi-record transaction notes the fingerprint once, after fsync.
+        if self._label_acc is not None:
+            if path is not None and self._fp_pending is not None:
+                try:
+                    path.relative_to(self.paths.vectors_dir)
+                except ValueError:
+                    self._fp_pending.append(path)
+            return
+        if path is not None:
+            try:
+                path.relative_to(self.paths.vectors_dir)
+                return
+            except ValueError:
+                pass
+            if self._index_fp is not None:
+                self._note_one_file(path)
+                return
+        self._note_index_current()
+
+    def _note_one_file(self, path: Path) -> None:
+        assert self._index_fp is not None
+        try:
+            stat = path.stat()
+        except OSError:
+            self._note_index_current()
+            return
+        rel = str(path.relative_to(self.root))
+        kept = [item for item in self._index_fp if item[0] != rel]
+        kept.append((rel, stat.st_mtime_ns, stat.st_size))
+        self._index_fp = tuple(sorted(kept))
+
+    def _note_pending_files(self) -> None:
+        pending = self._fp_pending or []
+        if self._index_fp is None:
+            self._note_index_current()
+            return
+        seen: set[Path] = set()
+        for path in pending:
+            if path in seen:
+                continue
+            seen.add(path)
+            self._note_one_file(path)
+
     def _note_index_current(self) -> None:
         self._index_fp = self._shard_fingerprint()
 
     def _shard_fingerprint(self) -> tuple[tuple[str, int, int], ...]:
         """mtime+size of node/edge/tombstone JSONL (source of truth for MATCH)."""
         items: list[tuple[str, int, int]] = []
-        vectors = self.paths.vectors_dir
-        for path in self._managed_files():
-            if path.suffix.lower() != ".jsonl":
+        for directory in (
+            self.paths.nodes_dir,
+            self.paths.edges_dir,
+            self.paths.meta_dir,
+        ):
+            if not directory.is_dir():
                 continue
+            prefix = directory.name
             try:
-                path.relative_to(vectors)
-                continue
-            except ValueError:
-                pass
-            try:
-                stat = path.stat()
+                entries = os.scandir(directory)
             except OSError:
                 continue
-            rel = str(path.relative_to(self.root))
-            items.append((rel, stat.st_mtime_ns, stat.st_size))
+            with entries:
+                for entry in entries:
+                    name = entry.name
+                    if not name.endswith(".jsonl"):
+                        continue
+                    try:
+                        stat = entry.stat()
+                    except OSError:
+                        continue
+                    items.append((f"{prefix}/{name}", stat.st_mtime_ns, stat.st_size))
         return tuple(sorted(items))
 
     # --- internals ---
@@ -652,24 +773,27 @@ class GraphStore(_GraphStoreAliases):
         return picked.payload
 
     def _live_node_unlocked(self, record_id: str) -> NodeRecord | None:
-        """Disk LWW, or the in-transaction index (Graphiti bulk tx)."""
+        """Index hit, else disk LWW.
+
+        A node created earlier in this transaction is in the index and not yet
+        on disk. Returning that hit skips a directory listing. A miss still
+        reads the shard, so a stale index cannot hide a live disk node.
+        """
         try:
             record_id = normalize_uuid(record_id)
         except ValueError:
             return None
-        found = self._get_node_unlocked(record_id)
-        if found is not None:
-            return found
         index = self._index
-        if index is None:
-            return None
-        rec = index.nodes.get(record_id)
-        if rec is not None:
-            return rec
-        mapped = index.uuid_to_id.get(record_id)
-        if mapped is not None:
-            return index.nodes.get(mapped)
-        return None
+        if index is not None:
+            rec = index.nodes.get(record_id)
+            if rec is not None:
+                return rec
+            mapped = index.uuid_to_id.get(record_id)
+            if mapped is not None:
+                rec = index.nodes.get(mapped)
+                if rec is not None:
+                    return rec
+        return self._get_node_unlocked(record_id)
 
     def _get_graph_edge_unlocked(self, record_id: str) -> EdgeRecord | None:
         lives = self._load_edges_for(record_id)
@@ -806,6 +930,25 @@ class GraphStore(_GraphStoreAliases):
                 grouped[tomb.id].append(tomb)
         return grouped
 
+    def _remember_labels(
+        self,
+        *,
+        node_labels: tuple[str, ...] | list[str] = (),
+        relationship_types: tuple[str, ...] | list[str] = (),
+        vector_properties: tuple[str, ...] | list[str] = (),
+    ) -> None:
+        acc = self._label_acc
+        if acc is None:
+            self._note_labels(
+                node_labels=node_labels,
+                relationship_types=relationship_types,
+                vector_properties=vector_properties,
+            )
+            return
+        acc[0].update(node_labels)
+        acc[1].update(relationship_types)
+        acc[2].update(vector_properties)
+
     def _note_labels(
         self,
         *,
@@ -831,6 +974,20 @@ class GraphStore(_GraphStoreAliases):
             "relationship_types": sorted(types),
             "vector_properties": sorted(vecs),
         }
+        if path.is_file():
+            try:
+                current = json.loads(path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                current = None
+            if (
+                isinstance(current, dict)
+                and sorted(current.get("node_labels") or []) == payload["node_labels"]
+                and sorted(current.get("relationship_types") or [])
+                == payload["relationship_types"]
+                and sorted(current.get("vector_properties") or [])
+                == payload["vector_properties"]
+            ):
+                return
         replace_json_file(path, payload)
 
     def _rebuild_labels_unlocked(self) -> None:
@@ -921,6 +1078,24 @@ class GraphStore(_GraphStoreAliases):
                 best[key] = picked.payload
         lines = [t.to_jsonl() for t in best.values()]
         replace_jsonl(self.paths.deleted_jsonl, lines)
+
+
+def _wal_groups(path: Path) -> list[list[tuple[str, Any]]]:
+    """Complete commit groups. A trailing group with no checksum is dropped."""
+    groups: list[list[tuple[str, Any]]] = []
+    buf: list[tuple[str, Any]] = []
+    for _, obj in iter_json_objects(path):
+        if obj.get("op") == "commit":
+            if obj.get("n") == len(buf):
+                groups.append(buf)
+            buf = []
+            continue
+        decoded = _wal_decode(obj)
+        if decoded is None:
+            buf = []
+            continue
+        buf.append(decoded)
+    return groups
 
 
 def _wal_encode(op: tuple[str, Any]) -> str:
