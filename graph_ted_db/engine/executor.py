@@ -499,7 +499,15 @@ def _invert(direction: str) -> Direction:
     return "both"
 
 
-def _bind_rel(row: dict, rel: RelPattern, view: RelView) -> bool:
+def _bind_rel(row: dict, rel: RelPattern, view: RelView, params: dict) -> bool:
+    """Bind a relationship the same way ``_bind_node`` binds a node.
+
+    Inline maps are filters, including on anonymous relationships (no name).
+    """
+    for key, expr in rel.props:
+        expected = evaluate(expr, row, params)
+        if view.get(key) != expected:
+            return False
     if rel.name:
         existing = row.get(rel.name)
         if existing is not None and existing != view:
@@ -559,7 +567,7 @@ def _match_edges(ex: Executor, row: dict, pattern: Pattern) -> list[dict]:
                 pairs.append((dst_view, src_view))
         for a, b in pairs:
             nxt = dict(row)
-            if not _bind_rel(nxt, rel, view):
+            if not _bind_rel(nxt, rel, view, ex.params):
                 continue
             if not _bind_node(nxt, left, a, ex.params):
                 continue
@@ -605,7 +613,7 @@ def _walk_to(
         direction = "both"
     for edge_view, neighbor in _walk_neighbors(ex, src, rel, direction):
         nxt = dict(row)
-        if not _bind_rel(nxt, rel, edge_view):
+        if not _bind_rel(nxt, rel, edge_view, ex.params):
             continue
         if not _bind_node(nxt, pattern.nodes[to_idx], neighbor, ex.params):
             continue
@@ -729,12 +737,14 @@ def _store_vector(ex: Executor, record_id: str, prop: str, vec: Any) -> None:
 
 
 def _eval_props(ex: Executor, row: dict, pattern: NodePattern | RelPattern) -> dict[str, Any]:
-    if isinstance(pattern, RelPattern):
-        return {}
     out: dict[str, Any] = {}
     for key, expr in pattern.props:
         out[key] = _jsonable(evaluate(expr, row, ex.params))
     return out
+
+
+def _rel_map_matches(view: RelView, props: dict[str, Any]) -> bool:
+    return all(view.get(key) == expected for key, expected in props.items())
 
 
 def _new_node(ex: Executor, row: dict, pattern: NodePattern) -> NodeView:
@@ -778,15 +788,15 @@ def _upsert_pattern(
         nodes.append(existing)
     for i, rel_pat in enumerate(pattern.rels):
         left, right = nodes[i], nodes[i + 1]
-        rel_props: dict[str, Any] = {}
-        for key, expr in rel_pat.props:
-            rel_props[key] = _jsonable(evaluate(expr, nxt, ex.params))
+        rel_props = _eval_props(ex, nxt, rel_pat)
         rel_uuid = rel_props.get("uuid")
         if rel_uuid is not None:
             rel_uuid = str(rel_uuid)
         existing_edge = None
         if rel_pat.name and isinstance(nxt.get(rel_pat.name), RelView):
-            existing_edge = nxt[rel_pat.name]
+            bound = nxt[rel_pat.name]
+            if _rel_map_matches(bound, rel_props):
+                existing_edge = bound
         rel_type = rel_pat.types[0] if rel_pat.types else "RELATES_TO"
         if existing_edge is None and not create_only and rel_uuid:
             rec = ex.index.edges.get(rel_uuid)
@@ -799,7 +809,7 @@ def _upsert_pattern(
                     ),
                     None,
                 )
-            if rec is not None:
+            if rec is not None and _rel_map_matches(rel_view(rec), rel_props):
                 existing_edge = rel_view(rec)
         if existing_edge is None and not create_only:
             for edge, _neigh in ex.index.neighbors(
@@ -808,7 +818,7 @@ def _upsert_pattern(
                 ev = rel_view(edge)
                 if ev.to_id != right.id:
                     continue
-                if rel_uuid and ev.get("uuid") != rel_uuid and ev.id != rel_uuid:
+                if not _rel_map_matches(ev, rel_props):
                     continue
                 existing_edge = ev
                 break

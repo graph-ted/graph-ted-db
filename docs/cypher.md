@@ -24,7 +24,7 @@ Aimed at `graph-ted/backend/cypher/helpers/*.cypher`.
 
 **Clauses:** `MATCH`, `OPTIONAL MATCH`, `WHERE`, `WITH` `[DISTINCT]` `ORDER BY` `SKIP` `LIMIT`, `UNWIND`, `RETURN` `[DISTINCT]` `ORDER BY` `SKIP` `LIMIT`, `UNION` / `UNION ALL`, `DELETE`, `DETACH DELETE`, `CREATE`, `MERGE`, `SET` (property, `+=`, `=`, labels, `n:$(expr)`), `CALL db.create.setNodeVectorProperty` / `setRelationshipVectorProperty`, `CALL db.index.fulltext.queryNodes` / `queryRelationships` `YIELD`. `CREATE INDEX` / `CREATE FULLTEXT INDEX` / `DROP` / `SHOW` are accepted no-ops.
 
-**Patterns:** `(n:Label:Label {prop: expr})`, undirected `(a)-[r]-(b)`, directed `(a)-[r:TYPE]->(b)` / `<-`, typed `[:MENTIONS]`, anonymous `()`, `-[r]-`.
+**Patterns:** `(n:Label:Label {prop: expr})`, undirected `(a)-[r]-(b)`, directed `(a)-[r:TYPE]->(b)` / `<-`, typed `[:MENTIONS]`, anonymous `()`, `-[r]-`. An inline map on a relationship (`-[r:TYPE {k: expr}]->` or anonymous `-[{k: expr}]->`) is a filter, same as a node map, including under `OPTIONAL MATCH`, `MERGE`, and `DELETE`. `WHERE r.k = $p` filters a bound relationship. Variable-length paths (`*`) are not in this subset.
 
 **Expressions:** `$params`, property `.`, subscript `expr[index]` (lists, strings, maps), label check `n:Entity`, `AND`/`OR`/`NOT`, `= <> < > <= >=`, `IN`, `IS NULL` / `IS NOT NULL`, `+` (lists append a non-list), `CASE WHEN … THEN … ELSE … END`, list literals, map literals `{k: expr}`, list comprehensions `[x IN expr WHERE pred]`.
 

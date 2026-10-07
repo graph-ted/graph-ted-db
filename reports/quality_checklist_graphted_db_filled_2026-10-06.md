@@ -41,6 +41,7 @@
 | 2.2 | At least one test uses a real on-disk DB file (not only mocks) | Mocks lie; files are the product | **PASS** | Store tests use `tmp_path` + real JSONL shards (`test_put_get_list_node`, conflict-copy tests). |
 | 2.3 | Smoke script: install wheel → open/create graph → write one fact → read it back → exit 0 | Catches “tests pass, product doesn’t” | **PASS** | Clean venv: `graph-ted-db init` / `put-node` / `ls-nodes` on `/tmp/audit-smoke-graph` exit 0; Alice persisted. |
 | 2.4 | Second open of the same graph folder still works (persistence) | Local DB that forgets itself is a non-starter | **PASS** | Second `GraphStore.open` → `iter_nodes` returned Alice. |
+| 2.5 | Relationship property filters in MATCH (inline maps and WHERE) are honored, and delete-by-filter (DELETE / DETACH DELETE scoped by node or relationship properties) touches only the matching records | A dropped relationship map deletes or returns every edge | **PASS** | Regression: `tests/test_rel_property_filter.py` (two groups, a missing group, anonymous maps, OPTIONAL MATCH, MERGE, rel DELETE, node DETACH DELETE / DELETE). Runs in the CI `pytest` job. Living note: `docs/quality.md`. |
 
 ## 3. Bad input and failure behavior
 

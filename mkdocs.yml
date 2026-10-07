@@ -44,6 +44,7 @@ nav:
   - Guides:
       - Overview: overview.md
       - Security: security.md
+      - Quality: quality.md
       - On-disk format: format.md
       - Cypher: cypher.md
       - HTTP: http.md
