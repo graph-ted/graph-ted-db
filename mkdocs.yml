@@ -53,6 +53,7 @@ nav:
       - Overview: overview.md
       - Security: security.md
       - Quality: quality.md
+      - Sharing a graph: sharing.md
       - On-disk format: format.md
       - Cypher: cypher.md
       - HTTP: http.md
