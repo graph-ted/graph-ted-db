@@ -33,12 +33,10 @@ When the app theme extends Chakra's `defaultConfig`, radii, spacing, and shadows
 
 The checkout path is never written to `tokens.json` or `extra.css`.
 
-Contrast overrides from `BRANDING.md` still apply after a sync: `#009999` is not used as light-mode link text, the header stays `#007A7A` with white text, and dark-mode link text stays `#33CCCC` when the extracted link color would fail on slate.
+Contrast overrides from `BRANDING.md` still apply after a sync: `#009999` is not used as light-mode link text (it is rewritten to `#007A7A`). A dark link of `#007A7A` is rewritten to `#009999`, which is 4.61:1 on slate and matches the app. An extracted header of `#009999` is still rewritten to `#007A7A`, because white text on that teal fails. The committed header is not that case: it is Chakra `bg.muted`.
 
 If the checkout cannot be read, `--from` exits non-zero and leaves `tokens.json` unchanged.
 
-Current state: synced from `graph-ted` `7675086` with Chakra UI 3.26.0. The app sets fonts and the teal palette and extends `defaultConfig`, so `radius`, `spacing`, and `shadow` are Chakra's defaults. Buttons and the search field use the `l2` control radius (4px, as on app buttons and inputs); code blocks and admonitions use `md` (6px, as on app panels). `icon_set` is `react-icons` (mostly Feather, `fi`). Material's built-in icons stay, because no SVGs are vendored. To switch, self-host the SVGs under `overrides/.icons/` and point `theme.icon` at them. Do not load icons from a CDN.
-
-The colors and header stay as `BRANDING.md` sets them. Two known differences from the app are deliberate there: the app navbar is a neutral bar (`bg.muted`) with the teal mark, and the docs header is `#007A7A` with the white-stroke mark; app dark-mode links are `#009999`, and the docs use `#33CCCC` on slate.
+Current state: synced from `graph-ted` `7675086` with Chakra UI 3.26.0. The app UI is the visual reference for the docs. The header is the app navbar: `bg.muted` (`#f4f4f5` light, `#18181b` dark), `fg` text (`#09090B` / `#fafafa`), and a 1px `border` (`#e4e4e7` / `#27272a`), with the full-color teal mark at 72px in an 81px row. Dark-scheme links are `#009999`. Light-scheme links stay `#007A7A`. The app extends `defaultConfig`, so `radius`, `spacing`, and `shadow` are Chakra's defaults. Buttons and the search field use the `l2` control radius (4px, as on app buttons and inputs); code blocks and admonitions use `md` (6px, as on app panels). `icon_set` is `react-icons` (mostly Feather, `fi`). Material's built-in icons stay, because no SVGs are vendored. To switch, self-host the SVGs under `overrides/.icons/` and point `theme.icon` at them. Do not load icons from a CDN.
 
 `--from` accepts `--dry-run` to print the mapped values without writing. `--tokens` and `--css` override the output paths (used by tests).

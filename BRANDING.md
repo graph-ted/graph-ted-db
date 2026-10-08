@@ -5,15 +5,24 @@ live at `https://graph-ted.com/db/`.
 
 ## Color
 
+The app UI is the visual reference for the docs. Header, type, and link
+colors below match the app navbar and its Chakra tokens.
+
 | Role | Hex | Where it is used | Contrast |
 | --- | --- | --- | --- |
-| Brand teal | `#009999` | Wordmark, highlights, borders, large surfaces | 3.49:1 on white. Too low for small text. |
-| Interactive | `#007A7A` | Header bar, light-scheme links, buttons, focus | 5.17:1 with white, in both directions. |
-| Dark-scheme links | `#33CCCC` | Links and content focus on slate `#1e2129` | 8.16:1 on that background. `#007A7A` on slate is 3.12:1, so the dark scheme uses the lighter teal for text. |
+| Brand teal | `#009999` | Wordmark, highlights, borders, large surfaces, dark-scheme links | 3.49:1 on white, so it is not small text on white. 4.61:1 on slate `#1e2129`. |
+| Interactive | `#007A7A` | Light-scheme links, buttons, content focus, footer | 5.17:1 with white, in both directions. |
+| Header, light | `#f4f4f5` | Header and tabs. Chakra `bg.muted` (`gray.100`) | Text `#09090B` is 18.10:1. |
+| Header, dark | `#18181b` | Header and tabs. Chakra `bg.muted` (`gray.900`) | Text `#fafafa` is 16.97:1. |
+| Header border, light | `#e4e4e7` | 1px bottom border. Chakra `border` (`gray.200`) | Separates the bar from the page. |
+| Header border, dark | `#27272a` | 1px bottom border. Chakra `border` (`gray.800`) | Separates the bar from the page. |
 
-The header is `#007A7A` because white type on `#009999` is 3.49:1. The
-header logo is `docs/assets/logo-light-stroke.svg`: white circle strokes
-and connectors on that bar. `#009999` strokes on `#007A7A` are 1.48:1.
+The header is the app top bar: light gray `#f4f4f5` or zinc `#18181b`, with
+that 1px border. Text, tabs, search, and icons use Chakra `fg`
+(`#09090B` / `#fafafa`). The header logo is the full-color mark
+`docs/assets/logo.svg` (teal strokes, white discs), at 72px in an 81px row.
+`docs/assets/logo-light-stroke.svg` is still produced by the logo build for
+other callers; the docs header does not use it.
 
 ## Wordmark
 
@@ -25,8 +34,7 @@ the font by itself.
 Source: `https://github.com/octaviopardo/EBGaramond12` (`fonts/ttf/EBGaramond-Regular.ttf`).
 Name-table version: `Version 1.002; ttfautohint (v1.8.4.16-eb64)`.
 
-Regenerate the SVG, the light-stroke header file, the favicons, and the
-README PNG:
+Regenerate the SVG, the light-stroke file, the favicons, and the README PNG:
 
 ```bash
 curl -fsSL -o /tmp/EBGaramond-Regular.ttf \
@@ -53,16 +61,16 @@ EB Garamond.
 
 ## Docs theme
 
-The MkDocs stylesheet is generated from `docs/theme/tokens.json`:
+The app UI is the visual reference. The MkDocs stylesheet is generated from `docs/theme/tokens.json`:
 
 ```bash
 python scripts/sync_tokens.py
 python scripts/sync_tokens.py --check
 ```
 
-Re-sync from the app repository (`frontend/` in `graph-ted/graph-ted`) is documented in `docs/theme/README.md`. The tokens were last synced from ref `7675086`: the font stack, Chakra's radii, spacing, and light/dark shadows (the app extends Chakra's `defaultConfig`), and the `react-icons` package. Colors and the navbar size below are the values the stylesheet uses.
+Re-sync from the app repository (`frontend/` in `graph-ted/graph-ted`) is documented in `docs/theme/README.md`. The tokens were last synced from ref `7675086`: the font stack, Chakra's radii, spacing, and light/dark shadows (the app extends Chakra's `defaultConfig`), and the `react-icons` package. The header uses Chakra `bg.muted`, `fg`, and `border` from that same 3.26.0 theme. Light-scheme links stay `#007A7A`. Dark-scheme links are `#009999`, matching the app.
 
-The header row is 81px tall and the logo image is 72px tall, matching the app navbar and its mark. Logo SVG files, the favicon, and the header logo asset are unchanged; only the spacing around the existing logo is set in CSS.
+The header row is 81px tall, including the 1px bottom border, and the logo image is 72px tall, matching the app navbar (`py={1}` around the 72px mark). Logo SVG files and the favicon are unchanged. The header points at `docs/assets/logo.svg`. Spacing around that mark is set in CSS.
 
 ## Docs text
 

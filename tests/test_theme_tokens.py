@@ -41,8 +41,16 @@ def test_committed_tokens_come_from_the_app():
     assert tokens["icon_set"] == "react-icons"
     assert tokens["font"]["text"].startswith('"Inter Variable", Inter')
     assert tokens["color"]["light"]["link"].lower() == "#007a7a"
-    assert tokens["color"]["dark"]["link"].lower() == "#33cccc"
-    assert tokens["color"]["light"]["header"].lower() == "#007a7a"
+    assert tokens["color"]["dark"]["link"].lower() == "#009999"
+    assert tokens["color"]["dark"]["accent"].lower() == "#009999"
+    assert tokens["color"]["light"]["header"].lower() == "#f4f4f5"
+    assert tokens["color"]["dark"]["header"].lower() == "#18181b"
+    assert tokens["color"]["light"]["header_text"].lower() == "#09090b"
+    assert tokens["color"]["dark"]["header_text"].lower() == "#fafafa"
+    assert tokens["color"]["light"]["header_border"].lower() == "#e4e4e7"
+    assert tokens["color"]["dark"]["header_border"].lower() == "#27272a"
+    assert tokens["focus"]["light"].lower() == "#007a7a"
+    assert tokens["focus"]["dark"].lower() == "#009999"
     assert tokens["layout"]["navbar_height"] == "81px"
     assert tokens["layout"]["logo_height"] == "72px"
     assert tokens["layout"]["root_font_size"] == "16px"
@@ -80,8 +88,16 @@ def test_committed_tokens_carry_no_local_paths():
 def test_stylesheet_uses_aa_colors_and_navbar_size():
     css = CSS.read_text(encoding="utf-8")
     assert "--md-typeset-a-color: #007A7A;" in css
-    assert "--md-typeset-a-color: #33CCCC;" in css
-    assert "--md-typeset-a-color: #009999;" not in css
+    assert "--md-typeset-a-color: #009999;" in css
+    assert "--md-typeset-a-color: #33CCCC;" not in css
+    assert "#33CCCC" not in css
+    assert "--gt-header-bg: #f4f4f5;" in css
+    assert "--gt-header-bg: #18181b;" in css
+    assert "--gt-header-fg: #09090B;" in css
+    assert "--gt-header-fg: #fafafa;" in css
+    assert "--gt-header-border: #e4e4e7;" in css
+    assert "--gt-header-border: #27272a;" in css
+    assert "--md-primary-fg-color: #007A7A;" in css
     assert "height: 81px;" in css
     assert "height: 72px;" in css
     assert "http://" not in css
@@ -168,7 +184,7 @@ def test_from_extracts_named_tokens_and_keeps_contrast(tmp_path: Path):
     assert extracted["icon_set"] == "lucide"
     assert extracted["color"]["light"]["link"] == "#007A7A"
     assert extracted["color"]["light"]["header"] == "#007A7A"
-    assert extracted["color"]["dark"]["link"] == "#33CCCC"
+    assert extracted["color"]["dark"]["link"] == "#009999"
     assert extracted["layout"]["navbar_height"] == "90px"
     assert extracted["layout"]["logo_height"] == "80px"
     assert extracted["radius"]["md"] == "10px"
@@ -176,7 +192,9 @@ def test_from_extracts_named_tokens_and_keeps_contrast(tmp_path: Path):
     assert "card" in extracted["shadow"]
     assert "Inter Variable" in extracted["font"]["text"]
     css = out_css.read_text(encoding="utf-8")
-    assert "--md-typeset-a-color: #009999;" not in css
+    assert "--md-typeset-a-color: #007A7A;" in css
+    assert "--md-typeset-a-color: #009999;" in css
+    assert "#33CCCC" not in css
     assert "height: 90px;" in css
     assert str(tmp_path) not in out_tokens.read_text(encoding="utf-8")
     assert str(tmp_path) not in css

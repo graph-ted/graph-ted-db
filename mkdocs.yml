@@ -16,9 +16,9 @@ theme:
   # fonts.googleapis.com during the build, so committed woff2 files keep
   # `mkdocs build --strict` offline.
   font: false
-  # White strokes. #009999 on the #007A7A header is 1.48:1, so an <img>
-  # logo cannot use the themeable file (page CSS does not cross into it).
-  logo: assets/logo-light-stroke.svg
+  # Full-color mark, same file the app navbar uses. The SVG's own
+  # fallbacks are the teal strokes; page CSS does not cross into an <img>.
+  logo: assets/logo.svg
   # SVG icon, plus docs/overrides/main.html adds favicon.ico for older clients.
   # 32px PNG sibling: docs/assets/favicon-32.png
   favicon: assets/favicon.svg
