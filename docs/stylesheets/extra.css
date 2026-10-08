@@ -297,15 +297,46 @@
   color: var(--md-typeset-a-color);
 }
 
-/* Permalinks are in the HTML. Keep them visible without a hover. */
-.md-typeset .headerlink {
-  color: var(--md-typeset-a-color);
-  opacity: 0.7;
-}
+/* Permalinks: a small link icon in the link color, hidden until the
+   heading is hovered or the link has keyboard focus. The pilcrow stays in
+   the HTML as the link text (anchors and markup are unchanged); it is
+   moved out of the box and the icon is drawn over it. Screen only, so
+   Material's print rule still drops permalinks. */
+@media screen {
+  .md-typeset .headerlink {
+    --gt-permalink-icon: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZD0iTTMuOSAxMmMwLTEuNzEgMS4zOS0zLjEgMy4xLTMuMWg0VjdIN2E1IDUgMCAwIDAtNSA1IDUgNSAwIDAgMCA1IDVoNHYtMS45SDdjLTEuNzEgMC0zLjEtMS4zOS0zLjEtMy4xTTggMTNoOHYtMkg4em05LTZoLTR2MS45aDRjMS43MSAwIDMuMSAxLjM5IDMuMSAzLjFzLTEuMzkgMy4xLTMuMSAzLjFoLTRWMTdoNGE1IDUgMCAwIDAgNS01IDUgNSAwIDAgMC01LTUiLz48L3N2Zz4=");
+    position: relative;
+    display: inline-block;
+    width: 0.75em;
+    height: 0.75em;
+    margin-left: 0.35em;
+    overflow: hidden;
+    white-space: nowrap;
+    text-indent: 100%;
+    vertical-align: -0.05em;
+    color: var(--md-typeset-a-color);
+    opacity: 0;
+  }
 
-.md-typeset :hover > .headerlink,
-.md-typeset .headerlink:focus {
-  opacity: 1;
+  .md-typeset .headerlink::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-color: currentColor;
+    -webkit-mask: var(--gt-permalink-icon) center / contain no-repeat;
+    mask: var(--gt-permalink-icon) center / contain no-repeat;
+  }
+
+  .md-typeset :hover > .headerlink,
+  .md-typeset :focus-within > .headerlink,
+  .md-typeset .headerlink:focus-visible {
+    opacity: 1;
+  }
+
+  .md-typeset .headerlink:hover,
+  .md-typeset .headerlink:focus-visible {
+    color: var(--md-typeset-a-color);
+  }
 }
 
 /* Light-scheme primary buttons stay white on the interactive teal.

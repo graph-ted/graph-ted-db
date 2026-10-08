@@ -11,6 +11,7 @@ See docs/theme/README.md.
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import re
 import subprocess
@@ -161,6 +162,22 @@ _FONT_FACE = """\
   src: url("../assets/fonts/JetBrainsMono-BoldItalic.woff2") format("woff2");
 }
 """
+
+
+# Permalink icon: Material Design Icons "link" (24px), the same path Material
+# for MkDocs bundles as material/link. It is embedded as a base64 data URI so
+# the docs load nothing remote and the stylesheet carries no URL text.
+_LINK_ICON_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="'
+    "M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7a5 5 0 0 0-5 5 5 5 0 0 0 5 5h4v-1.9H7"
+    "c-1.71 0-3.1-1.39-3.1-3.1M8 13h8v-2H8zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1"
+    's-1.39 3.1-3.1 3.1h-4V17h4a5 5 0 0 0 5-5 5 5 0 0 0-5-5"/></svg>'
+)
+
+
+def link_icon_data_uri() -> str:
+    encoded = base64.b64encode(_LINK_ICON_SVG.encode("utf-8")).decode("ascii")
+    return f"data:image/svg+xml;base64,{encoded}"
 
 
 def norm_key(value: str) -> str:
@@ -426,6 +443,7 @@ def render_css(tokens: dict) -> str:
     interactive = tokens["color"].get("interactive", "#007A7A")
     on_interactive = tokens["color"].get("on_interactive", "#FFFFFF")
     text_font = _css_string(font["text"])
+    icon = link_icon_data_uri()
     code_font = _css_string(font["code"])
     body = f"""\
 :root {{
@@ -541,15 +559,46 @@ def render_css(tokens: dict) -> str:
   color: var(--md-typeset-a-color);
 }}
 
-/* Permalinks are in the HTML. Keep them visible without a hover. */
-.md-typeset .headerlink {{
-  color: var(--md-typeset-a-color);
-  opacity: 0.7;
-}}
+/* Permalinks: a small link icon in the link color, hidden until the
+   heading is hovered or the link has keyboard focus. The pilcrow stays in
+   the HTML as the link text (anchors and markup are unchanged); it is
+   moved out of the box and the icon is drawn over it. Screen only, so
+   Material's print rule still drops permalinks. */
+@media screen {{
+  .md-typeset .headerlink {{
+    --gt-permalink-icon: url("{icon}");
+    position: relative;
+    display: inline-block;
+    width: 0.75em;
+    height: 0.75em;
+    margin-left: 0.35em;
+    overflow: hidden;
+    white-space: nowrap;
+    text-indent: 100%;
+    vertical-align: -0.05em;
+    color: var(--md-typeset-a-color);
+    opacity: 0;
+  }}
 
-.md-typeset :hover > .headerlink,
-.md-typeset .headerlink:focus {{
-  opacity: 1;
+  .md-typeset .headerlink::before {{
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-color: currentColor;
+    -webkit-mask: var(--gt-permalink-icon) center / contain no-repeat;
+    mask: var(--gt-permalink-icon) center / contain no-repeat;
+  }}
+
+  .md-typeset :hover > .headerlink,
+  .md-typeset :focus-within > .headerlink,
+  .md-typeset .headerlink:focus-visible {{
+    opacity: 1;
+  }}
+
+  .md-typeset .headerlink:hover,
+  .md-typeset .headerlink:focus-visible {{
+    color: var(--md-typeset-a-color);
+  }}
 }}
 
 /* Light-scheme primary buttons stay white on the interactive teal.

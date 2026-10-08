@@ -271,3 +271,36 @@ def test_from_reads_chakra_token_shape_and_defaults(tmp_path: Path):
     assert "--gt-space-0-5: 2px;" in css  # root_font_size 16px from the committed tokens
     assert "--gt-shadow-md: 0px 4px 8px color-mix(in srgb, black 64%, transparent);" in css
     assert str(tmp_path) not in out_tokens.read_text(encoding="utf-8")
+
+
+def test_permalinks_are_a_hidden_link_icon_until_hover_or_focus():
+    import base64
+    import re
+
+    css = CSS.read_text(encoding="utf-8")
+    start = css.index("@media screen {\n  .md-typeset .headerlink {")
+    block = css[start : css.index("\n}\n", start)]
+    base = block[block.index(".md-typeset .headerlink {") :]
+    base = base[: base.index("}")]
+    # Hidden by default, drawn in the scheme link color (#007A7A / #009999).
+    assert "opacity: 0;" in base
+    assert "color: var(--md-typeset-a-color);" in base
+    # Revealed on heading hover and on keyboard focus.
+    assert ".md-typeset :hover > .headerlink," in block
+    assert ".md-typeset :focus-within > .headerlink," in block
+    assert ".md-typeset .headerlink:focus-visible {" in block
+    # The icon is an embedded SVG, not the pilcrow and not a remote load.
+    match = re.search(r'--gt-permalink-icon: url\("data:image/svg\+xml;base64,([A-Za-z0-9+/=]+)"\);', base)
+    assert match, base
+    svg = base64.b64decode(match.group(1)).decode("utf-8")
+    assert svg.startswith("<svg") and "<path" in svg
+    assert "mask: var(--gt-permalink-icon)" in block
+    assert "background-color: currentColor;" in block
+    assert "opacity: 0.7;" not in css
+
+
+def test_permalink_markup_keeps_toc_anchor_settings():
+    text = (ROOT / "mkdocs.yml").read_text(encoding="utf-8")
+    # The heading ids and the permalink anchor come from toc; the icon is CSS only.
+    assert "permalink: true" in text
+    assert "permalink_title: Anchor" in text
