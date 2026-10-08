@@ -13,7 +13,7 @@
 **Not ship-ready for public PyPI yet** on process gates (no CI), but **core security posture for a local file graph is solid**: no `eval`/`exec`/`subprocess`/`pickle` on untrusted input; Cypher is an AST walker (`engine/eval.py` is not Python `eval`); loopback-default HTTP with token required for non-loopback; zero runtime deps / `pip-audit` clean; docs honestly say “not encrypted.”
 
 **Top issues**
-1. **E1 (fixed in draft PR #5):** `docs/http.md` had personal Windows path `C:\Users\<redacted>\...` — airgap FAIL on tip `6e25e2f`; scrubbed on `a2eb84b`.
+1. **E1 (fixed in draft PR #5):** `docs/http.md` had personal Windows path `C:\Users\<user>\...` — airgap FAIL on tip `6e25e2f`; scrubbed on `a2eb84b`.
 2. **C2 (backlog, medium):** no explicit symlink hardening when opening the graph root / shard files.
 3. **G2 (backlog, low):** docs say not encrypted / ACL boundary, but do not explicitly warn “don’t store API keys/secrets in node props.”
 

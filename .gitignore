@@ -22,3 +22,10 @@ mnt/
 
 # MkDocs build output (mkdocs build). Not published.
 /site/
+
+# Local-only PII scan terms (real names, emails, remote names). Never commit.
+.pii-terms.local
+
+# File-sync test: local config and results can name a real remote. Never commit.
+scripts/sync_test/sync_test.local.env
+sync-test-results/

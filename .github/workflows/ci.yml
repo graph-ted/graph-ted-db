@@ -26,6 +26,9 @@ jobs:
       - name: Test
         run: pytest
 
+      - name: PII scan
+        run: python scripts/pii_scan.py
+
       - name: Design tokens are in sync
         run: python scripts/sync_tokens.py --check
 
