@@ -173,7 +173,7 @@ def test_put_edge_requires_live_endpoints(tmp_path: Path):
         raise AssertionError("expected ValueError for missing to_id")
 
 
-def test_dangling_edge_is_hidden_then_doctor_tombstones(tmp_path: Path):
+def test_dangling_edge_is_hidden_then_doctor_fix_tombstones(tmp_path: Path):
     g = _open(tmp_path)
     a = g.make_node(
         record_id="00000000-0000-4000-8000-00000000000a",
@@ -192,6 +192,9 @@ def test_dangling_edge_is_hidden_then_doctor_tombstones(tmp_path: Path):
     assert g.get_edge(dangling.id) is None
     assert list(g.iter_edges()) == []
     report = g.doctor()
+    assert any(dangling.id in item for item in report.dangling_edges_found)
+    assert report.dangling_edges_tombstoned == []
+    report = g.doctor(fix=True)
     assert any(dangling.id in item for item in report.dangling_edges_tombstoned)
     assert g.get_edge(dangling.id) is None
 

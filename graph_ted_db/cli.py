@@ -101,9 +101,22 @@ def main(argv: list[str] | None = None) -> int:
 
     doctor_p = sub.add_parser(
         "doctor",
-        help="repair torn JSONL, rebuild labels, tombstone dangling edges",
+        help="repair torn JSONL, rebuild labels, report dangling edges (--fix tombstones them)",
+        description=(
+            "Repair torn JSONL lines, remove leftover tmp files, rebuild labels.json, and report "
+            "dangling edges (an endpoint is not a live node). Dangling edges are only reported "
+            "unless --fix is given."
+        ),
     )
     doctor_p.add_argument("path", type=Path)
+    doctor_p.add_argument(
+        "--fix",
+        action="store_true",
+        help=(
+            "tombstone dangling edges. Permanent, and it syncs to every device: in a synced "
+            "folder, wait until sync has finished, because an edge can arrive before its nodes"
+        ),
+    )
 
     cypher_p = sub.add_parser("cypher", help="run a Cypher subset query (see docs/cypher.md)")
     cypher_p.add_argument("path", type=Path)
@@ -211,7 +224,7 @@ def _dispatch(args: argparse.Namespace) -> int:
         print(f"compacted {args.path}")
         return 0
     if args.command == "doctor":
-        report = store.doctor()
+        report = store.doctor(fix=args.fix)
         print(report.summary(), end="")
         return 0
     if args.command == "cypher":

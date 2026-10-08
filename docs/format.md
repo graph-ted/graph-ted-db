@@ -215,7 +215,7 @@ If Alice changes `props.name` and Bob changes `props.summary` on the same node w
 
 - Must not concatenate or splice two JSON objects into one malformed or mixed record. Torn-line repair (above) exists so a crash cannot fuse two writes.
 - Must not produce a live node whose `props`/`labels` were taken half from Alice and half from Bob.
-- Must not leave a **live edge whose endpoints are not live nodes**. `delete_node` tombstones incident edges (DETACH). Reads skip dangling edges. `doctor` tombstones any that remain (for example after a conflict-copy union). Compact omits dangling winners from the canonical shard.
+- Must not leave a **live edge whose endpoints are not live nodes**. `delete_node` tombstones incident edges (DETACH). Reads skip dangling edges. `doctor` reports any that remain; `doctor --fix` tombstones them. In a synced folder an edge can arrive before its nodes, and a tombstone is permanent on every device, so run `--fix` only after sync has finished. Compact omits dangling winners from the canonical shard.
 
 Writer clocks can skew. Graphiti episodic history is the user-visible change log; this rule only decides the materialised record.
 

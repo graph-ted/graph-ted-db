@@ -25,7 +25,7 @@ graph-ted-db is a **local property-graph store** for Python applications. One di
 - **One folder = one graph** = one share / ACL boundary.
 - Canonical data is sharded JSONL. Derived indexes are local and rebuildable.
 - Concurrent editors: last-write-wins per record; union-merge of conflict copies on read.
-- Crash safety: one flush and fsync per multi-record transaction. A one-record autocommit fsyncs that line only. A crash loses at most the in-flight transaction. Torn lines are repaired on open; `graph-ted-db doctor` repairs dangling edges.
+- Crash safety: one flush and fsync per multi-record transaction. A one-record autocommit fsyncs that line only. A crash loses at most the in-flight transaction. Torn lines are repaired on open. `graph-ted-db doctor` reports dangling edges; `doctor --fix` tombstones them.
 - Process locks live outside the synced folder (`GRAPH_TED_DB_DATA` / platform app data).
 
 Full layout: [On-disk format](format.md).

@@ -16,6 +16,7 @@ variables or from an untracked ``sync_test.local.env`` next to this file
     GTDB_SYNC_BISYNC_FLAGS  extra bisync flags, space separated
     GTDB_SYNC_HOLD_LOCK  "1": hold the writer's graph-ted-db lock while bisync runs
     GTDB_SYNC_PARALLEL   "1": the two writers' bisync runs may overlap (one thread each)
+    GTDB_SYNC_DOCTOR_FIX "1": scenario s9 runs doctor with fix=True (default: report only)
 
 Usage:
 
@@ -434,6 +435,7 @@ def check_replica(w: Writer, entries: list[dict[str, Any]], *, run_doctor: bool 
     if run_doctor:
         rep = store.doctor()
         res["doctor"] = {"torn_repaired": len(rep.torn_repaired), "tmp_removed": len(rep.tmp_removed),
+                         "dangling_found": len(rep.dangling_edges_found),
                          "dangling_tombstoned": len(rep.dangling_edges_tombstoned),
                          "skipped_lines": len(rep.skipped_lines),
                          "conflict_copies": len(rep.conflict_copies)}
@@ -777,8 +779,11 @@ def sc9_doctor_partial(cfg: Config, name: str = "s9_doctor_partial", n: int = 50
     # Partial arrival: only edges/ and meta/ reach B first (a sync interrupted, or a slow client).
     subprocess.run([cfg.rclone, "copy", a.remote, str(b.store), "--include", "edges/**",
                     "--include", "meta/**"], check=True, capture_output=True)
-    rep = GraphStore.open(b.store, data_dir=b.data).doctor()
-    notes = {"desc": f"A writes {n} nodes + {n} edges in one transaction; B receives edges before nodes and runs doctor",
+    fix = os.environ.get("GTDB_SYNC_DOCTOR_FIX") == "1"
+    rep = GraphStore.open(b.store, data_dir=b.data).doctor(fix=fix)
+    notes = {"desc": f"A writes {n} nodes + {n} edges in one transaction; B receives edges before nodes and runs "
+                     f"doctor{' --fix' if fix else ''}",
+             "doctor_dangling_found": len(rep.dangling_edges_found),
              "doctor_dangling_tombstoned": len(rep.dangling_edges_tombstoned)}
     return finish(name, a, b, notes)
 

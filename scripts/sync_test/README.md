@@ -40,7 +40,7 @@ python scripts/sync_test/sync_harness.py run s2 s5      # some
 | s6b | SIGKILL rclone mid-upload and mid-download; recover |
 | s7 | Open and read the store while a sync is downloading |
 | s8 | Conflict-copy file names from several sync clients (no rclone) |
-| s9 | `doctor` on a copy where edges arrived before their nodes |
+| s9 | `doctor` on a copy where edges arrived before their nodes (`GTDB_SYNC_DOCTOR_FIX=1` for `--fix`) |
 | s10 | Both writers touch most shards between syncs; bisync's delete safety check stops one side until `--force` |
 
 Record ids and contents are deterministic. Each writer journals every committed record; after the replicas converge the check opens a copy of each replica and reports records lost, lost but still on disk, stale (an older version won), corrupt (content no writer wrote), unexpected, skipped lines, `doctor` output, and whether both replicas are identical.

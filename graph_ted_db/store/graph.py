@@ -58,32 +58,47 @@ from graph_ted_db.store.records import (
 
 @dataclass
 class DoctorReport:
-    """Result of `GraphStore.doctor` / `graph-ted-db doctor`."""
+    """Result of `GraphStore.doctor` / `graph-ted-db doctor`.
+
+    ``dangling_edges_found`` lists live edges whose endpoints are not live
+    nodes. They are only tombstoned (``dangling_edges_tombstoned``) when
+    ``fix`` is true: in a synced folder an edge often arrives before its nodes,
+    and a tombstone written then would delete it on every device.
+    """
 
     torn_repaired: list[str] = field(default_factory=list)
     tmp_removed: list[str] = field(default_factory=list)
     labels_rebuilt: bool = False
+    dangling_edges_found: list[str] = field(default_factory=list)
     dangling_edges_tombstoned: list[str] = field(default_factory=list)
     skipped_lines: list[str] = field(default_factory=list)
     conflict_copies: list[str] = field(default_factory=list)
+    fix: bool = False
 
     def summary(self) -> str:
         lines = [
             f"torn lines repaired: {len(self.torn_repaired)}",
             f"tmp files removed: {len(self.tmp_removed)}",
             f"labels.json rebuilt: {self.labels_rebuilt}",
+            f"dangling edges found: {len(self.dangling_edges_found)}",
             f"dangling edges tombstoned: {len(self.dangling_edges_tombstoned)}",
             f"skipped invalid lines: {len(self.skipped_lines)}",
             f"conflict copies: {len(self.conflict_copies)}",
         ]
         for item in self.torn_repaired:
             lines.append(f"  repaired {item}")
-        for item in self.dangling_edges_tombstoned:
-            lines.append(f"  dangling {item}")
+        verb = "tombstoned" if self.fix else "would tombstone"
+        for item in self.dangling_edges_found:
+            lines.append(f"  dangling ({verb}) {item}")
         for item in self.skipped_lines:
             lines.append(f"  skipped {item}")
         for item in self.conflict_copies:
             lines.append(f"  conflict {item}")
+        if self.dangling_edges_found and not self.fix:
+            lines.append(
+                "dangling edges were reported, not deleted. In a synced folder their nodes may"
+                " still be on the way; once sync has finished, run doctor with --fix to tombstone them."
+            )
         return "\n".join(lines) + "\n"
 
 
@@ -598,19 +613,27 @@ class GraphStore(_GraphStoreAliases):
             self._compact_tombstones()
             self._rebuild_index_unlocked()
 
-    def doctor(self) -> DoctorReport:
-        """Repair torn JSONL, drop leftover tmp, detach dangling edges, rebuild labels."""
-        report = DoctorReport()
+    def doctor(self, *, fix: bool = False) -> DoctorReport:
+        """Repair torn JSONL, drop leftover tmp, rebuild labels, report dangling edges.
+
+        Dangling edges (an endpoint is not a live node) are only reported
+        unless ``fix`` is true. Reads already skip them. Tombstoning is
+        permanent and syncs to every device, and in a shared folder an edge
+        can arrive before its nodes, so run with ``fix=True`` only once the
+        sync client has finished.
+        """
+        report = DoctorReport(fix=fix)
         with self._lock():
             report.torn_repaired, report.tmp_removed = self._recover_files()
             dangling = self._dangling_edges_unlocked()
-            if dangling:
+            report.dangling_edges_found = [
+                f"{edge.id} type={edge.type} from={edge.from_id} to={edge.to_id}" for edge in dangling
+            ]
+            if dangling and fix:
                 now = format_timestamp()
                 for edge in dangling:
                     self._delete_edge_unlocked(edge.id, updated_by="doctor", now=now)
-                    report.dangling_edges_tombstoned.append(
-                        f"{edge.id} type={edge.type} from={edge.from_id} to={edge.to_id}"
-                    )
+                report.dangling_edges_tombstoned = list(report.dangling_edges_found)
             self._rebuild_labels_unlocked()
             self._rebuild_index_unlocked()
             report.labels_rebuilt = True
