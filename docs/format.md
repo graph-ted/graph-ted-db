@@ -221,10 +221,13 @@ Writer clocks can skew. Graphiti episodic history is the user-visible change log
 
 ## OneDrive conflict copies
 
-Sync clients fork a file when both sides edited it. Names vary; v1 treats **any extra `*.jsonl` in a shard directory** as a conflict sibling of the canonical `NN.jsonl` if:
+Sync clients fork a file when both sides edited it. Names vary; v1 treats an extra file in a shard directory as a conflict sibling of the canonical `NN.jsonl` if:
 
-- it is not exactly `NN.jsonl`, and
+- it is not exactly `NN.jsonl`,
+- it ends in `.jsonl`, **or** it is `NN.jsonl` followed by a conflict suffix (`.conflict1`, `.<name>-conflict2`, `..path1`, `..path2`), which is how rclone bisync renames both sides of a conflict, and
 - the stem starts with the shard hex (`00`, `ff`, …) or contains the canonical filename stem.
+
+The same rule applies to `meta/deleted.jsonl`, so forked tombstones still apply.
 
 Examples that must be ingested and union-merged:
 
@@ -233,7 +236,12 @@ nodes/00.jsonl
 nodes/00-DESKTOP-NAME-conflict-2026-08-25.jsonl
 nodes/00 (conflicted copy).jsonl
 nodes/00-conflict-copy.jsonl
+nodes/00.jsonl.conflict1
+nodes/00.jsonl..path2
+meta/deleted.jsonl.conflict1
 ```
+
+rclone bisync removes `NN.jsonl` when it renames both sides, so a shard can consist of conflict copies only until the next write recreates `NN.jsonl`. Transfers still in progress (`*.partial`) and temporary files (`*.tmp`) are never read.
 
 After a successful merge, a writer **may** append the union into `NN.jsonl` and delete conflict copies. Deleting is optional: leaving them is safe; they remain part of the union. Compaction should wait until the sync client is idle enough that the delete will not resurrect a stale copy.
 

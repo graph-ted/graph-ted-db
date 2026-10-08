@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -64,6 +65,21 @@ class GraphPaths:
         )
 
 
+# rclone bisync renames both sides of a conflict by appending a suffix after the
+# extension: "00.jsonl.conflict1" (default since v1.66, also with a custom
+# --conflict-suffix such as "00.jsonl.laptop-conflict1") or "00.jsonl..path1"
+# (earlier releases). A transfer in progress is "<name>.<hash>.partial"; that is
+# not a conflict copy and stays ignored, like "*.tmp".
+_SUFFIXED_CONFLICT = re.compile(r"\.jsonl\.(?:[\w-]*conflict\d*|\.path[12])$", re.IGNORECASE)
+
+
+def is_record_file_name(name: str) -> bool:
+    """A JSONL record file: ``*.jsonl`` or a sync client's suffixed conflict copy."""
+    if name.endswith(".tmp") or name.startswith("~$") or name.startswith("."):
+        return False
+    return name.lower().endswith(".jsonl") or _SUFFIXED_CONFLICT.search(name) is not None
+
+
 def is_canonical_shard_name(name: str) -> bool:
     """True for v1 shard filenames: two lowercase hex digits + .jsonl."""
     if not name.endswith(".jsonl") or len(name) != len("00.jsonl"):
@@ -77,9 +93,7 @@ def is_conflict_copy(path: Path, canonical_stem: str) -> bool:
 
     Sync clients rename rather than overwrite. See docs/format.md.
     """
-    if path.suffix.lower() != ".jsonl":
-        return False
-    if path.name.endswith(".tmp") or path.name.startswith("~$") or path.name.startswith("."):
+    if not is_record_file_name(path.name):
         return False
     if path.name == f"{canonical_stem}.jsonl":
         return False
@@ -113,9 +127,7 @@ def shard_jsonl_files(directory: Path, canonical_stem: str) -> list[Path]:
             if name == canonical_name:
                 continue
             lowered = name.lower()
-            if not lowered.endswith(".jsonl"):
-                continue
-            if name.endswith(".tmp") or name.startswith("~$") or name.startswith("."):
+            if not is_record_file_name(name):
                 continue
             if not (lowered.startswith(stem) or stem in lowered):
                 continue
@@ -134,9 +146,7 @@ def discover_shard_stems(directory: Path) -> list[str]:
     for child in directory.iterdir():
         if not child.is_file():
             continue
-        if child.name.endswith(".tmp") or child.name.startswith("~$") or child.name.startswith("."):
-            continue
-        if child.suffix.lower() != ".jsonl":
+        if not is_record_file_name(child.name):
             continue
         if is_canonical_shard_name(child.name):
             stems.add(child.name[:2])

@@ -39,7 +39,12 @@ from graph_ted_db.store.lock import (
     wal_dir_for,
 )
 from graph_ted_db.store.lww import resolve
-from graph_ted_db.store.paths import GraphPaths, discover_shard_stems, shard_jsonl_files
+from graph_ted_db.store.paths import (
+    GraphPaths,
+    discover_shard_stems,
+    is_record_file_name,
+    shard_jsonl_files,
+)
 from graph_ted_db.store.aliases import _GraphStoreAliases
 from graph_ted_db.store.records import (
     EMPTY_LABELS,
@@ -694,7 +699,7 @@ class GraphStore(_GraphStoreAliases):
             with entries:
                 for entry in entries:
                     name = entry.name
-                    if not name.endswith(".jsonl"):
+                    if not is_record_file_name(name):
                         continue
                     try:
                         stat = entry.stat()
@@ -748,19 +753,22 @@ class GraphStore(_GraphStoreAliases):
         return found
 
     def _conflict_copy_paths(self) -> list[Path]:
+        # The canonical shard may be absent (rclone bisync renames both sides),
+        # so filter by name rather than dropping the first file.
+        def copies(directory: Path, stem: str) -> list[Path]:
+            return [p for p in shard_jsonl_files(directory, stem) if p.name != f"{stem}.jsonl"]
+
         found: list[Path] = []
         for directory in (self.paths.nodes_dir, self.paths.edges_dir):
             for stem in discover_shard_stems(directory):
-                files = shard_jsonl_files(directory, stem)
-                found.extend(files[1:])
+                found.extend(copies(directory, stem))
         if self.paths.vectors_dir.is_dir():
             for prop_dir in sorted(self.paths.vectors_dir.iterdir()):
                 if not prop_dir.is_dir():
                     continue
                 for stem in discover_shard_stems(prop_dir):
-                    files = shard_jsonl_files(prop_dir, stem)
-                    found.extend(files[1:])
-        found.extend(shard_jsonl_files(self.paths.meta_dir, "deleted")[1:])
+                    found.extend(copies(prop_dir, stem))
+        found.extend(copies(self.paths.meta_dir, "deleted"))
         return found
 
     def _get_node_unlocked(self, record_id: str) -> NodeRecord | None:
