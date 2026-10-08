@@ -1,0 +1,81 @@
+name: Bug report
+description: Something in graph-ted-db is broken or behaves differently from the docs.
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this.
+
+        **Security vulnerabilities do not belong here.** Report them privately as described in [SECURITY.md](https://github.com/graph-ted/graph-ted-db/blob/main/SECURITY.md).
+  - type: input
+    id: version
+    attributes:
+      label: graph-ted-db version
+      description: "Output of `python -c \"import importlib.metadata as m; print(m.version('graph-ted-db'))\"`, or the commit SHA if you run from a checkout."
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Linux
+        - macOS
+        - Windows
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      description: "Output of `python --version`."
+      placeholder: "3.11.9"
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: Install method
+      options:
+        - pip install graph-ted-db
+        - Editable checkout (pip install -e .)
+        - Wheel file
+        - Bundled with graph-ted standalone
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: The smallest script or CLI sequence that shows the problem. Start from an empty graph folder if you can. Remove any private data.
+      render: python
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and tracebacks
+      description: Full traceback or command output. Remove tokens, file paths, and data you don't want to share.
+      render: text
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else
+      description: Storage setup (local disk, synced folder, network share), HTTP serve on or off, graph size, and so on.

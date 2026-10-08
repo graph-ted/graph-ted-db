@@ -92,6 +92,14 @@ pip install -e ".[dev]"
 pytest
 ```
 
+## Feedback and issues
+
+- **Bugs, enhancement requests, docs problems:** [open an issue](https://github.com/graph-ted/graph-ted-db/issues/new/choose) using one of the forms.
+- **Questions and ideas:** [Discussions](https://github.com/graph-ted/graph-ted-db/discussions).
+- **Security vulnerabilities:** report privately as described in [SECURITY.md](SECURITY.md), never in a public issue.
+
+Contributing: see [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Related
 
 graph-ted-db is the local store used by [graph-ted](https://github.com/graph-ted/graph-ted) standalone. Hosted deployments may use other backends. This repository is the database library only.

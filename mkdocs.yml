@@ -87,3 +87,16 @@ hooks:
 
 extra_css:
   - stylesheets/extra.css
+
+# Footer: feedback link (text) plus an icon link. The repo is private until
+# launch, so these 404 for anyone without access.
+copyright: >-
+  Found a problem or have feedback?
+  <a href="https://github.com/graph-ted/graph-ted-db/issues/new/choose">Open an issue</a>
+  or <a href="https://github.com/graph-ted/graph-ted-db/discussions">start a discussion</a>.
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/graph-ted/graph-ted-db/issues
+      name: Issues and feedback

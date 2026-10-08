@@ -1,0 +1,28 @@
+name: Enhancement request
+description: Suggest a new capability or a change to existing behavior.
+title: "[Enhancement]: "
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For open-ended ideas or questions, start a thread in [Discussions](https://github.com/graph-ted/graph-ted-db/discussions/categories/ideas) instead.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do, and what gets in the way today?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: What you'd like to happen. API sketches and example queries are welcome.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Workarounds you use now, or other approaches you thought about.
