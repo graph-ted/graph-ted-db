@@ -22,12 +22,12 @@ def test_render_llms_lists_pages_and_full_text():
     pages = [
         {
             "title": "Home",
-            "url": "https://graph-ted.com/db/",
+            "url": "https://graph-ted.com/graph-ted-db/docs/",
             "markdown": "# graph-ted-db\n\n**Local property-graph storage for Python.**\n",
         },
         {
             "title": "API reference",
-            "url": "https://graph-ted.com/db/api/",
+            "url": "https://graph-ted.com/graph-ted-db/docs/api/",
             "markdown": "Public names exported by `graph_ted_db`.\n\n## GraphStore\n",
         },
     ]
@@ -35,11 +35,11 @@ def test_render_llms_lists_pages_and_full_text():
         pages,
         site_name="graph-ted-db",
         site_description="Local property-graph storage for Python",
-        site_url="https://graph-ted.com/db",
+        site_url="https://graph-ted.com/graph-ted-db/docs",
     )
-    assert "https://graph-ted.com/db/llms-full.txt" in index
-    assert "[Home](https://graph-ted.com/db/)" in index
-    assert "[API reference](https://graph-ted.com/db/api/)" in index
+    assert "https://graph-ted.com/graph-ted-db/docs/llms-full.txt" in index
+    assert "[Home](https://graph-ted.com/graph-ted-db/docs/)" in index
+    assert "[API reference](https://graph-ted.com/graph-ted-db/docs/api/)" in index
     assert "graphted.com" not in index
     assert "graphted.com" not in full
     assert "# API reference" in full

@@ -1,0 +1,28 @@
+/* Small "graph-ted" link before the logo (overrides/partials/header.html).
+   Hand-written: extra.css is generated from the design tokens. Colors follow
+   the header's own foreground, so both schemes match the app navbar. */
+.md-header__button.gt-home-link {
+  margin-right: 0;
+  padding-right: 0.2rem;
+  font-size: 0.7rem;
+  font-weight: 500;
+  line-height: 2.4rem;
+  white-space: nowrap;
+  color: inherit;
+  opacity: 0.8;
+}
+.md-header__button.gt-home-link::after {
+  content: "/";
+  margin-left: 0.4rem;
+  opacity: 0.5;
+}
+.md-header__button.gt-home-link:hover,
+.md-header__button.gt-home-link:focus-visible {
+  opacity: 1;
+  text-decoration: underline;
+}
+/* Material hides the header logo below 76.25em (it moves to the drawer);
+   hide this link with it. */
+@media screen and (max-width: 76.2344em) {
+  .md-header__button.gt-home-link { display: none; }
+}

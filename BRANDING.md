@@ -1,7 +1,10 @@
 # Brand
 
 The canonical domain is [graph-ted.com](https://graph-ted.com). The docs
-live at `https://graph-ted.com/db/`.
+will live at `https://graph-ted.com/graph-ted-db/docs/`, under the
+graph-ted-db landing page at `/graph-ted-db/`. The docs header logo links to
+that landing page, and a small "graph-ted" link goes to the home page at the
+root. The favicon is the db circle mark (`docs/assets/favicon.*`).
 
 ## Color
 
