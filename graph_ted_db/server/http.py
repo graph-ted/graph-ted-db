@@ -37,6 +37,12 @@ class GraphTedHTTPServer(ThreadingHTTPServer):
     # old process still owns the port; curl then hits the leftover graph.
     allow_reuse_address = False
     daemon_threads = True
+    # listen() backlog. socketserver defaults to 5, which a burst of
+    # concurrent clients (the engine fans out writes in parallel) overflows
+    # while the single accept loop is busy: Linux then drops SYNs and final
+    # ACKs (1 s+ retransmit stalls) and, under CPU load, can answer a sent
+    # request with a connection reset. The kernel caps this at somaxconn.
+    request_queue_size = 128
 
     def server_bind(self) -> None:
         if os.name == "nt":

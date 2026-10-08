@@ -1,6 +1,7 @@
 """Concurrent writers share one GraphStore. The HTTP server is threaded."""
 
 import json
+import socket
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -177,3 +178,22 @@ def test_http_concurrent_writes_and_reads(tmp_path: Path):
     names = {node.props.get("name") for node in reopened.iter_nodes()}
     assert names == {"anchor"} | {f"n{i}" for i in range(WORKERS)}
     assert len(list(reopened.iter_edges())) == WORKERS
+
+
+def test_http_listen_backlog_absorbs_connection_burst(tmp_path: Path):
+    # The accept loop is not running, so every connection has to wait in the
+    # kernel's listen queue. With socketserver's default backlog of 5 the
+    # extra connects stall or get reset; the server must queue a burst.
+    _root, store = _open(tmp_path)
+    server = make_server(store, "127.0.0.1", 0)
+    host, port = server.server_address[:2]
+    assert server.request_queue_size >= 128
+    clients: list[socket.socket] = []
+    try:
+        for _ in range(32):
+            clients.append(socket.create_connection((host, port), timeout=0.5))
+    finally:
+        for client in clients:
+            client.close()
+        server.server_close()
+    assert len(clients) == 32
