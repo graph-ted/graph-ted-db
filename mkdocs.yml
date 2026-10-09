@@ -11,6 +11,7 @@ edit_uri: ""
 
 exclude_docs: |
   theme/README.md
+  RELEASING.md
 
 # Linked from the footer (overrides/partials/copyright.html), not a nav tab.
 not_in_nav: |
