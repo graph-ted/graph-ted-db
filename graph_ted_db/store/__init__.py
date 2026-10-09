@@ -4,9 +4,9 @@ from graph_ted_db.store.format import (
     FORMAT_NAME,
     FORMAT_VERSION,
     SHARD_FANOUT,
+    format_timestamp,
     parse_timestamp,
     shard_id,
-    format_timestamp,
 )
 from graph_ted_db.store.graph import DoctorReport, GraphStore
 from graph_ted_db.store.init import GraphFormatError, init_graph, load_graph_meta

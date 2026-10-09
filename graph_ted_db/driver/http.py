@@ -41,7 +41,7 @@ def normalize_base(url: str) -> str:
 
 def is_http_url(value: str) -> bool:
     normalized = value.strip().lower()
-    return normalized.startswith("http://") or normalized.startswith("https://")
+    return normalized.startswith(("http://", "https://"))
 
 
 def _post(

@@ -75,7 +75,7 @@ _SUFFIXED_CONFLICT = re.compile(r"\.jsonl\.(?:[\w-]*conflict\d*|\.path[12])$", r
 
 def is_record_file_name(name: str) -> bool:
     """A JSONL record file: ``*.jsonl`` or a sync client's suffixed conflict copy."""
-    if name.endswith(".tmp") or name.startswith("~$") or name.startswith("."):
+    if name.endswith(".tmp") or name.startswith(("~$", ".")):
         return False
     return name.lower().endswith(".jsonl") or _SUFFIXED_CONFLICT.search(name) is not None
 
@@ -101,9 +101,7 @@ def is_conflict_copy(path: Path, canonical_stem: str) -> bool:
     stem = canonical_stem.lower()
     if lowered.startswith(stem):
         return True
-    if stem in lowered:
-        return True
-    return False
+    return stem in lowered
 
 
 def shard_jsonl_files(directory: Path, canonical_stem: str) -> list[Path]:

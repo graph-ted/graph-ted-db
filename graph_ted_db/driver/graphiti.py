@@ -24,7 +24,11 @@ from graph_ted_db.store import GraphStore, init_graph
 from graph_ted_db.store.init import GraphFormatError
 
 try:
-    from graphiti_core.driver.driver import GraphDriver, GraphDriverSession, GraphProvider
+    from graphiti_core.driver.driver import (
+        GraphDriver,
+        GraphDriverSession,
+        GraphProvider,
+    )
 except ImportError as exc:  # pragma: no cover
     raise ImportError(
         "GraphTedDbDriver requires graphiti-core. "
@@ -143,7 +147,7 @@ class GraphTedDbDriver(GraphDriver):
         super().__init__()
         raw = str(root).strip()
         if is_http_url(raw):
-            self._http = normalize_base(raw)
+            self._http: str | None = normalize_base(raw)
             self.store = None
         else:
             self._http = None

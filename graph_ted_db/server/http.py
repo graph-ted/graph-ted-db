@@ -395,6 +395,8 @@ def serve(
         logging.basicConfig(level=logging.INFO, format="%(message)s")
     server = make_server(store, host, port, max_records=max_records, token=token)
     bound_host, bound_port = server.server_address[:2]
+    if isinstance(bound_host, bytes):  # typeshed allows bytes; TCP gives str
+        bound_host = bound_host.decode()
     store.refresh_index()
     n_nodes = len(store._index.nodes) if store._index is not None else 0
     n_edges = len(store._index.edges) if store._index is not None else 0

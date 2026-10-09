@@ -7,13 +7,15 @@ import os
 import signal
 import threading
 from collections import defaultdict
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from graph_ted_db.index.local import LocalIndex
+from graph_ted_db.store.aliases import _GraphStoreAliases
 from graph_ted_db.store.format import (
     format_timestamp,
     is_vector_property_name,
@@ -31,7 +33,6 @@ from graph_ted_db.store.jsonl import (
     replace_json_file,
     replace_jsonl,
 )
-from graph_ted_db.index.local import LocalIndex
 from graph_ted_db.store.lock import (
     exclusive_lock,
     index_dir_for,
@@ -45,7 +46,6 @@ from graph_ted_db.store.paths import (
     is_record_file_name,
     shard_jsonl_files,
 )
-from graph_ted_db.store.aliases import _GraphStoreAliases
 from graph_ted_db.store.records import (
     EMPTY_LABELS,
     EdgeRecord,
@@ -768,7 +768,7 @@ class GraphStore(_GraphStoreAliases):
                 if not child.is_file():
                     continue
                 name = child.name
-                if name.endswith(".tmp") or name.endswith(".jsonl"):
+                if name.endswith((".tmp", ".jsonl")):
                     found.append(child)
         graph_tmp = self.paths.graph_json.with_name(self.paths.graph_json.name + ".tmp")
         if graph_tmp.is_file():
@@ -983,9 +983,9 @@ class GraphStore(_GraphStoreAliases):
     def _note_labels(
         self,
         *,
-        node_labels: tuple[str, ...] | list[str] = (),
-        relationship_types: tuple[str, ...] | list[str] = (),
-        vector_properties: tuple[str, ...] | list[str] = (),
+        node_labels: Iterable[str] = (),
+        relationship_types: Iterable[str] = (),
+        vector_properties: Iterable[str] = (),
     ) -> None:
         path = self.paths.labels_json
         try:
@@ -1131,7 +1131,7 @@ def _wal_groups(path: Path) -> list[list[tuple[str, Any]]]:
 
 def _wal_encode(op: tuple[str, Any]) -> str:
     kind, payload = op
-    if kind.startswith("put_") or kind.startswith("delete_"):
+    if kind.startswith(("put_", "delete_")):
         data = payload.to_dict()
         if kind == "put_vector":
             data["property"] = payload.property
