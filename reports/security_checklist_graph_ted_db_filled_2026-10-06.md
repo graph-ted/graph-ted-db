@@ -89,5 +89,5 @@
 - Runner: Margaret (via eng executor)
 - Result: **PASS with 2 backlog FAILs** (C2 symlink hardening; G2 secrets-in-graph docs) after merge of E1 fix PR #5; on tip alone E1 was FAIL
 - Potts ACCEPT: yes / no (after Ted checklist approval) — **pending**
-- Evidence: `/workspace/state/audit-evidence-2026-10-06/`; clone `/workspace/audit-graph-ted-db`
+- Evidence: kept in the auditor's local workspace (not in this repo)
 - Reports also: `reports/` on PR #5 (eng landing)

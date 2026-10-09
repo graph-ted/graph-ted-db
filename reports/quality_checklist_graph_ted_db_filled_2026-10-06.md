@@ -110,4 +110,4 @@
 - Potts ACCEPT: yes / no (after Ted checklist approval) — **pending**
 - CI on tip: **none** (no workflows). Local pytest green: 93 passed / 11 skipped.
 - Small fix landed: draft PR https://github.com/graph-ted/graph-ted-db/pull/5 (`a2eb84b`) docs airgap path
-- Reports: `/workspace/state/quality_checklist_graphted_db_filled_2026-10-06.md` + `reports/` on PR #5
+- Reports: `reports/quality_checklist_graph_ted_db_filled_2026-10-06.md` and `reports/security_checklist_graph_ted_db_filled_2026-10-06.md` (added in PR #5)
