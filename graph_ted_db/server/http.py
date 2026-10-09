@@ -252,6 +252,8 @@ def _health_payload(store: GraphStore) -> dict[str, Any]:
         "name": store.meta.name,
         "nodes": 0,
         "edges": 0,
+        # Counts only: /health is open without a token, so no paths.
+        "problems": store.problems(),
     }
     if store._index is not None:
         payload["nodes"] = len(store._index.nodes)

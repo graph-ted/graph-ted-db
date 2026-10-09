@@ -17,6 +17,10 @@ variables or from an untracked ``sync_test.local.env`` next to this file
     GTDB_SYNC_HOLD_LOCK  "1": hold the writer's graph-ted-db lock while bisync runs
     GTDB_SYNC_PARALLEL   "1": the two writers' bisync runs may overlap (one thread each)
     GTDB_SYNC_DOCTOR_FIX "1": scenario s9 runs doctor with fix=True (default: report only)
+    GTDB_SYNC_MODE     "bisync" (default): rclone bisync, which makes conflict copies.
+                       "overwrite": a client that never makes conflict copies; per file
+                       the newer side overwrites the other (rclone copy --update both
+                       ways, no deletes).
 
 Usage:
 
@@ -304,7 +308,16 @@ class Writer:
         d.mkdir(parents=True, exist_ok=True)
         return d
 
+    def overwrite_cmds(self) -> list[list[str]]:
+        base = [self.cfg.rclone, "copy", "--update", "--create-empty-src-dirs", "-v"]
+        return [
+            [*base, str(self.store), self.remote],
+            [*base, self.remote, str(self.store)],
+        ]
+
     def sync(self, extra: list[str] | None = None, *, timeout: float = 600) -> int:
+        if os.environ.get("GTDB_SYNC_MODE", "bisync") == "overwrite":
+            return self._sync_overwrite(timeout=timeout)
         cmd = self.bisync_cmd(extra)
         t0 = time.time()
         log = self.logdir / f"{len(self.sync_log):04d}.log"
@@ -327,6 +340,31 @@ class Writer:
         if proc.returncode == 0:
             self.synced_once = True
         return proc.returncode
+
+    def _sync_overwrite(self, *, timeout: float) -> int:
+        t0 = time.time()
+        log = self.logdir / f"{len(self.sync_log):04d}.log"
+        rc = 0
+        with open(log, "w") as fh, self._store_lock():
+            for cmd in self.overwrite_cmds():
+                proc = subprocess.run(
+                    cmd, stdout=fh, stderr=subprocess.STDOUT, text=True, timeout=timeout
+                )
+                rc = rc or proc.returncode
+        out = log.read_text(errors="replace")
+        self.sync_log.append(
+            {
+                "t": round(t0, 3),
+                "rc": rc,
+                "secs": round(time.time() - t0, 3),
+                "resync": False,
+                "log": log.name,
+                "out": out[-4000:],
+                "_full": out,
+            }
+        )
+        self.synced_once = True
+        return rc
 
     def _store_lock(self):
         """With GTDB_SYNC_HOLD_LOCK=1, hold this writer's graph-ted-db LOCK during bisync.
@@ -831,6 +869,7 @@ def sc5_same_record(cfg: Config, name: str = "s5_same_record", rounds: int = 10)
     a, b = setup_pair(cfg, name)
     base = [node_op(name, "S", i) for i in range(rounds)]
     base += [node_op(name, "S", 1000 + i) for i in range(rounds)]
+    base += [node_op(name, "S", 2000 + i) for i in range(rounds)]  # edit-vs-delete targets
     base += [
         edge_op(name, "S", i, rid(name, "S", "node", i), rid(name, "S", "node", 1000 + i))
         for i in range(rounds)
@@ -856,11 +895,23 @@ def sc5_same_record(cfg: Config, name: str = "s5_same_record", rounds: int = 10)
         )
         a.sync()
         b.sync()
+    # Then the same record is edited on one device and deleted on the other
+    # before either syncs; both orders, every round.
+    for r in range(rounds):
+        target = rid(name, "S", "node", 2000 + r)
+        editor, deleter = (a, b) if r % 2 == 0 else (b, a)
+        editor.write([node_op(name, editor.name, 2000 + r, rev=30, owner="S")], batch=1)
+        deleter.write([{"op": "del_node", "id": target}], batch=1)
+        a.sync()
+        b.sync()
     return finish(
         name,
         a,
         b,
-        {"desc": f"{rounds} rounds: A and B edit the same node and the same edge between syncs"},
+        {
+            "desc": f"{rounds} rounds: A and B edit the same node and the same edge between"
+            f" syncs; then {rounds} rounds where one edits and the other deletes the same node"
+        },
     )
 
 
@@ -1125,6 +1176,43 @@ def sc10_delete_safety(
     return finish(name, a, b, notes, converge_rounds=1)
 
 
+def sc11_drop_file(cfg: Config, name: str = "s11_drop_file") -> dict[str, Any]:
+    """A sync client deletes (or dedupes away) one record file on the remote."""
+    a, b = setup_pair(cfg, name)
+    a.write([node_op(name, "A", i) for i in range(200)], batch=50)
+    b.write([node_op(name, "B", i) for i in range(200)], batch=50)
+    for _ in range(2):
+        a.sync()
+        b.sync()
+    listing = subprocess.run(
+        [cfg.rclone, "lsf", "-R", "--files-only", a.remote],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.splitlines()
+    victims = sorted(p for p in listing if p.startswith("nodes/") and p.endswith(".jsonl"))
+    victim = victims[len(victims) // 2]
+    subprocess.run(
+        [cfg.rclone, "deletefile", f"{a.remote}/{victim}"], check=True, capture_output=True
+    )
+    for _ in range(2):
+        b.sync()
+        a.sync()
+    entries = read_journals(a, b)
+    checks = [check_replica(a, entries), check_replica(b, entries)]
+    return {
+        "scenario": name,
+        "mode": os.environ.get("GTDB_SYNC_MODE", "bisync"),
+        "dropped": victim.split("/", 1)[0] + "/<file>",
+        "checks": checks,
+        "verdict": verdict(checks),
+        "notes": {
+            "desc": "200+200 nodes synced, then one node file is deleted on the remote and"
+            " both devices sync twice. bisync propagates the delete; overwrite mode re-uploads."
+        },
+    }
+
+
 SCENARIOS = {
     "s1": sc1_sequential,
     "s2": sc2_concurrent,
@@ -1137,6 +1225,7 @@ SCENARIOS = {
     "s8": sc8_native_conflict_names,
     "s9": sc9_doctor_partial,
     "s10": sc10_delete_safety,
+    "s11": sc11_drop_file,
 }
 
 

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import signal
+import stat as stat_mod
 import threading
 from collections import defaultdict
 from collections.abc import Iterable, Iterator
@@ -61,6 +63,21 @@ from graph_ted_db.store.records import (
     VectorRecord,
 )
 
+log = logging.getLogger("graph_ted_db")
+
+# Windows attributes of a OneDrive Files-On-Demand (cloud-only) placeholder.
+_CLOUD_ONLY_ATTRS = (
+    getattr(stat_mod, "FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS", 0x400000)
+    | getattr(stat_mod, "FILE_ATTRIBUTE_RECALL_ON_OPEN", 0x40000)
+    | getattr(stat_mod, "FILE_ATTRIBUTE_OFFLINE", 0x1000)
+)
+
+
+def is_cloud_only(st: os.stat_result) -> bool:
+    """True if a file is a cloud-only placeholder whose bytes are not on disk."""
+    attrs = getattr(st, "st_file_attributes", 0) or 0
+    return bool(attrs & _CLOUD_ONLY_ATTRS)
+
 
 class SharedStoreError(RuntimeError):
     """The operation would rewrite files another device also writes."""
@@ -78,6 +95,8 @@ class DoctorReport:
 
     torn_repaired: list[str] = field(default_factory=list)
     foreign_torn: list[str] = field(default_factory=list)
+    cloud_only: list[str] = field(default_factory=list)
+    empty_files: list[str] = field(default_factory=list)
     tmp_removed: list[str] = field(default_factory=list)
     labels_rebuilt: bool = False
     dangling_edges_found: list[str] = field(default_factory=list)
@@ -93,6 +112,8 @@ class DoctorReport:
         lines = [
             f"torn lines repaired: {len(self.torn_repaired)}",
             f"unterminated tails left in other devices' files: {len(self.foreign_torn)}",
+            f"cloud-only placeholder files: {len(self.cloud_only)}",
+            f"empty record files: {len(self.empty_files)}",
             f"tmp files removed: {len(self.tmp_removed)}",
             f"labels.json rebuilt: {self.labels_rebuilt}",
             f"dangling edges found: {len(self.dangling_edges_found)}",
@@ -108,6 +129,10 @@ class DoctorReport:
             lines.append(f"  repaired {item}")
         for item in self.foreign_torn:
             lines.append(f"  not modified (still syncing?) {item}")
+        for item in self.cloud_only:
+            lines.append(f"  cloud-only (set the folder to always keep on this device) {item}")
+        for item in self.empty_files:
+            lines.append(f"  empty (still syncing, or not downloaded?) {item}")
         verb = "tombstoned" if self.fix else "would tombstone"
         for item in self.dangling_edges_found:
             lines.append(f"  dangling ({verb}) {item}")
@@ -143,18 +168,23 @@ class GraphStore(_GraphStoreAliases):
         self.root = Path(root).expanduser().resolve()
         self.meta: GraphMeta = load_graph_meta(self.root)
         self.data_dir = data_dir
-        self.writer_id = load_or_create_writer_id(writer_path_for(self.meta.id, data_dir))
+        # Under the device LOCK, so concurrent processes agree on one id.
+        with exclusive_lock(lock_path_for(self.meta.id, data_dir)):
+            self.writer_id = load_or_create_writer_id(writer_path_for(self.meta.id, data_dir))
         self.paths = GraphPaths(self.root, writer=self.writer_id)
         # Hybrid logical clock: the greatest (updated_at, counter) seen in the
         # store or written here. New writes always sort after it, so an edit
         # made after seeing a record wins even if this device's clock is behind.
         self._hlc: tuple[str, int] = ("", 0)
+        self._registered = False
         self._lock_path = lock_path_for(self.meta.id, data_dir)
         self._index_dir = index_dir_for(self.meta.id, data_dir)
         self._index: LocalIndex | None = None
         self._index_fp: tuple[tuple[str, int, int], ...] | None = None
         self._wal_dir = wal_dir_for(self.meta.id, data_dir)
         self._foreign_torn: list[str] = []
+        self._cloud_only: list[str] = []
+        self._empty_files: list[str] = []
         self._tx: _Txn | None = None
         self._lock_depth = 0
         # flock serializes other processes. It does not cover the
@@ -188,11 +218,33 @@ class GraphStore(_GraphStoreAliases):
         """
         store = cls(root, data_dir=data_dir)
         with store._lock():
-            store._register_writer_unlocked()
             store._recover_files()
             store._replay_wal_unlocked()
             store._rebuild_index_unlocked()
+            problems = store.problems()
+            if any(problems.values()):
+                log.warning(
+                    "graph-ted-db: %s opened with problems %s; run `graph-ted-db doctor`",
+                    store.meta.name,
+                    problems,
+                )
         return store
+
+    def problems(self) -> dict[str, int]:
+        """Counts of things that may hide records. All zero on a healthy store.
+
+        ``skipped_lines``: lines that are not valid records (including an
+        unterminated last line). ``unterminated_other_writers``: other writers'
+        files whose last line is incomplete, left unmodified (usually still
+        syncing). ``cloud_only_files``: cloud-only placeholders (OneDrive Files
+        On-Demand). ``empty_record_files``: zero-byte record files.
+        """
+        return {
+            "skipped_lines": len(set(self.skipped_lines)),
+            "unterminated_other_writers": len(self._foreign_torn),
+            "cloud_only_files": len(self._cloud_only),
+            "empty_record_files": len(self._empty_files),
+        }
 
     @contextmanager
     def _lock(self):
@@ -717,6 +769,8 @@ class GraphStore(_GraphStoreAliases):
         with self._lock():
             report.torn_repaired, report.tmp_removed = self._recover_files()
             report.foreign_torn = list(self._foreign_torn)
+            report.cloud_only = list(self._cloud_only)
+            report.empty_files = list(self._empty_files)
             dangling = self._dangling_edges_unlocked()
             report.dangling_edges_found = [
                 f"{edge.id} type={edge.type} from={edge.from_id} to={edge.to_id}"
@@ -850,6 +904,10 @@ class GraphStore(_GraphStoreAliases):
 
     def _append(self, path: Path, line: str) -> None:
         # Only this writer's own files are ever appended to (format v2).
+        # Readers never write: registration happens on the first write.
+        if not self._registered:
+            self._register_writer_unlocked()
+            self._registered = True
         append_jsonl(path, line, repair=self._owns(path))
 
     def _register_writer_unlocked(self) -> None:
@@ -920,7 +978,9 @@ class GraphStore(_GraphStoreAliases):
     def _recover_files(self) -> tuple[list[str], list[str]]:
         torn: list[str] = []
         tmp_removed: list[str] = []
-        self._foreign_torn: list[str] = []
+        self._foreign_torn = []
+        self._cloud_only = []
+        self._empty_files = []
         for path in self._managed_files():
             if path.name.endswith(".tmp"):
                 try:
@@ -930,6 +990,17 @@ class GraphStore(_GraphStoreAliases):
                     pass
                 continue
             if path.suffix.lower() == ".jsonl":
+                try:
+                    st = path.stat()
+                except OSError:
+                    continue
+                if is_cloud_only(st):
+                    # Reading would ask the sync client to download it; if
+                    # that fails the records are missing. Report it.
+                    self._cloud_only.append(str(path))
+                elif st.st_size == 0:
+                    self._empty_files.append(str(path))
+                    continue
                 if not self._owns(path):
                     # Another device's file: a missing newline usually means
                     # the sync client has not finished. Never modify it.

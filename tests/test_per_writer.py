@@ -157,6 +157,10 @@ def test_writer_id_contains_no_user_os_or_host_names(tmp_path: Path) -> None:
 def test_format_marker_and_writers_list(tmp_path: Path) -> None:
     a, b = _two_devices(tmp_path)
     sa, sb = _open(a, tmp_path, "a"), _open(b, tmp_path, "b")
+    _open(a, tmp_path, "reader").iter_nodes()
+    assert not (a / "meta" / "writers").exists() or not any((a / "meta" / "writers").iterdir())
+    sa.make_node(labels=["E"], props={})
+    sb.make_node(labels=["E"], props={})
     sync(a, b)
     meta = load_graph_meta(a)
     assert meta.format_version == 2 and meta.extras["layout"] == "per-writer"
@@ -176,8 +180,9 @@ def test_v1_store_is_read_and_upgraded(tmp_path: Path) -> None:
     (root / "nodes" / "0f.jsonl").write_text(old.to_jsonl() + "\n")
     g = GraphStore.open(root, data_dir=tmp_path / "d")
     assert g.get_node(X) is not None
-    assert load_graph_meta(root).format_version == 2
+    assert load_graph_meta(root).format_version == 1  # reading changes nothing
     g.make_node(record_id=X, labels=["E"], props={"new": True})
+    assert load_graph_meta(root).format_version == 2
     assert (root / "nodes" / "0f.jsonl").read_text() == old.to_jsonl() + "\n"
     assert g.get_node(X).props == {"new": True}
     assert g.doctor().legacy_shared_files == [str(root / "nodes" / "0f.jsonl")]

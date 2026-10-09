@@ -1,6 +1,6 @@
 # graph-ted-db on-disk format
 
-**Format version:** 2 (per-writer layout). Version 1 folders are read and upgraded on open; see [Upgrading from v1](#upgrading-from-v1).
+**Format version:** 2 (per-writer layout). Version 1 folders are read, and upgraded on the first write; see [Upgrading from v1](#upgrading-from-v1).
 
 This is the on-disk format of **graph-ted-db**, local property-graph storage for Python and the database component of the **graph-ted** kit. A file-sync client may copy, delay, or fork these files. Readers must treat the folder as eventually consistent and merge by record, not by whole file.
 
@@ -39,7 +39,7 @@ Every device (more exactly, every app-data directory) that writes to a graph has
 
 A writer **only ever appends to, or rewrites, files whose name carries its own id**. No file in `nodes/`, `edges/`, `vectors/` or the tombstones has two writers, so a sync client never has to choose between two versions of the same file, and adding different records on several devices at once cannot lose data. Processes on one device share the device's writer id and are serialized by the local `LOCK`.
 
-Each writer creates `meta/writers/<writer>.json` once:
+On its first write, each writer creates `meta/writers/<writer>.json` once (a device that only reads never writes anything to the folder):
 
 ```json
 {"writer": "w3f9c0a17be42d851", "format_version": 2, "created_at": "2026-10-09T18:00:00.000000Z"}
@@ -79,7 +79,7 @@ Example:
 }
 ```
 
-Opening a folder whose `format` is not `graph-ted-db`, or whose `format_version` is greater than the process understands, is an error. A lower version is upgraded in place on open (see [Upgrading from v1](#upgrading-from-v1)).
+Opening a folder whose `format` is not `graph-ted-db`, or whose `format_version` is greater than the process understands, is an error. A lower version is upgraded in place on the first write (see [Upgrading from v1](#upgrading-from-v1)).
 
 ## Identifiers
 
@@ -214,6 +214,8 @@ Path: `meta/deleted.<writer>.jsonl`
 
 A tombstone dominates a live record with the same id (and property, for vectors) iff the tombstone **wins LWW** against that record. A later live record with a newer `updated_at` resurrects the id.
 
+**Retention.** Tombstones are kept forever in this version; nothing removes them (`compact` keeps the winning tombstone per id, and is refused on shared stores). So a device that was offline for a long time and comes back with old versions cannot bring deleted records back: its old versions are older than the tombstone and lose. Only a version stamped **after** the tombstone wins, which is an edit, not a resurrection by accident. A future cleanup must not drop a tombstone until every registered writer is known to have seen it.
+
 ## Last-write-wins
 
 Compared per **record id** (and vector property), not per file, and **not per property inside `props`**.
@@ -275,6 +277,8 @@ rclone bisync removes `NN.jsonl` when it renames both sides, so a shard can cons
 
 After a successful merge, a writer **may** append the union into `NN.jsonl` and delete conflict copies. Deleting is optional: leaving them is safe; they remain part of the union. Compaction should wait until the sync client is idle enough that the delete will not resurrect a stale copy.
 
+**Cloud-only files (OneDrive Files On-Demand and similar).** A sync client may keep only a placeholder on disk and download the bytes when a file is read. If that download fails, the store opens with records missing. graph-ted-db reports such files: on Windows it checks the placeholder attributes (`RECALL_ON_DATA_ACCESS`, `RECALL_ON_OPEN`, `OFFLINE`); everywhere it reports zero-byte record files. Both show in `doctor`, in `GraphStore.problems()`, in `graph-ted-db info --check`, in `/health`, and as a warning on open. Set the graph folder to **Always keep on this device** (OneDrive) or the equivalent offline/"make available offline" option of your client.
+
 Never put a process lock file in the graph folder. Local `LOCK` lives in unsynced app data.
 
 ## `meta/labels.json`
@@ -316,4 +320,4 @@ These must not be placed in the synced graph folder. v1 writes `catalog.jsonl`, 
 
 ## Upgrading from v1
 
-A v1 folder has shared files (`nodes/NN.jsonl`, `meta/deleted.jsonl`) that any writer appended to. A v2 library reads them as part of each shard, never writes them again, and never modifies them (they are "v1 shared files" in `doctor`). On open it sets `format_version` to `2` and `layout` to `"per-writer"` in `graph.json`. A v1 library refuses to open the upgraded folder, which is intended: it would write to shared files again.
+A v1 folder has shared files (`nodes/NN.jsonl`, `meta/deleted.jsonl`) that any writer appended to. A v2 library reads them as part of each shard, never writes them again, and never modifies them (they are "v1 shared files" in `doctor`). On its first write it sets `format_version` to `2` and `layout` to `"per-writer"` in `graph.json`. A v1 library refuses to open the upgraded folder, which is intended: it would write to shared files again.

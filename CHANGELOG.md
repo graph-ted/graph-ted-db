@@ -26,11 +26,15 @@ First public release.
   its own files (`<shard>.<writer>.jsonl`, `meta/deleted.<writer>.jsonl`),
   with a random writer id kept in local app data and a registration file in
   `meta/writers/`. Versions are ordered by a hybrid logical clock
-  `(updated_at, counter, writer)`. Version 1 folders are read and upgraded on
-  open.
+  `(updated_at, counter, writer)`. Version 1 folders are read, and upgraded on
+  the first write.
 - Torn-tail repair touches only this writer's own files; other writers' files
   are never modified, and an unterminated last line is skipped and reported.
   `compact` refuses to run on a shared store (`SharedStoreError`).
+- `GraphStore.problems()`, `graph-ted-db info --check`, a `problems` object
+  in `/health` (counts only), and a warning on open, for skipped lines,
+  other writers' unterminated files, cloud-only placeholders and empty record
+  files. `doctor` lists them.
 - Crash safety: one flush and fsync per multi-record transaction, replay of
   an interrupted transaction on open, torn-line repair.
 - `GraphStore.execute` / `execute_many`: a documented subset of openCypher,
