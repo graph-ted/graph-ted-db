@@ -68,8 +68,10 @@ def test_append_onto_foreign_tail_keeps_its_bytes(tmp_path: Path) -> None:
 
     dev_b = GraphStore.open(root, data_dir=tmp_path / "b")
     _node(dev_b, A, "alice2")
-    data = shard.read_bytes()
-    assert data.startswith(before + b"\n")
+    # Per-writer layout: B never appends to A's file, it writes its own.
+    assert shard.read_bytes() == before
+    own = dev_b.paths.node_shard(A)
+    assert own != shard and own.name.endswith(f".{dev_b.writer_id}.jsonl")
     assert _names(GraphStore.open(root, data_dir=tmp_path / "c")) == {"alice2"}
 
 

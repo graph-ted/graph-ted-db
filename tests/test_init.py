@@ -13,7 +13,8 @@ def test_init_graph_creates_layout_without_preallocating_shards(tmp_path: Path):
     meta = init_graph(root, name="demo")
     paths = GraphPaths(root)
     assert paths.graph_json.is_file()
-    assert paths.deleted_jsonl.is_file()
+    assert paths.writers_dir.is_dir()
+    assert not paths.deleted_jsonl.exists()  # v2: tombstone files are per writer
     assert paths.labels_json.is_file()
     for d in paths.required_directories():
         assert d.is_dir()
@@ -24,7 +25,8 @@ def test_init_graph_creates_layout_without_preallocating_shards(tmp_path: Path):
     assert loaded.id == meta.id
     assert loaded.name == "demo"
     assert loaded.format == "graph-ted-db"
-    assert loaded.format_version == 1
+    assert loaded.format_version == 2
+    assert loaded.extras["layout"] == "per-writer"
     assert loaded.shard_fanout == 256
 
 

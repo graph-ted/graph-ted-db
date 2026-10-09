@@ -667,7 +667,7 @@ def _strip_embed(props: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]
 def _persist_node(ex: Executor, view: NodeView) -> NodeView:
     from uuid import uuid4
 
-    from graph_ted_db.store.format import format_timestamp, normalize_uuid
+    from graph_ted_db.store.format import normalize_uuid
     from graph_ted_db.store.records import NodeRecord
 
     try:
@@ -678,7 +678,7 @@ def _persist_node(ex: Executor, view: NodeView) -> NodeView:
     props.setdefault("uuid", nid)
     rec = NodeRecord(
         id=nid,
-        updated_at=format_timestamp(),
+        updated_at=ex.store._clock_now(),
         labels=tuple(dict.fromkeys(view.labels)),
         props=props,
         updated_by=ex.updated_by,
@@ -692,7 +692,7 @@ def _persist_node(ex: Executor, view: NodeView) -> NodeView:
 def _persist_edge(ex: Executor, view: RelView) -> RelView:
     from uuid import uuid4
 
-    from graph_ted_db.store.format import format_timestamp, normalize_uuid
+    from graph_ted_db.store.format import normalize_uuid
     from graph_ted_db.store.records import EdgeRecord
 
     try:
@@ -703,7 +703,7 @@ def _persist_edge(ex: Executor, view: RelView) -> RelView:
     props.setdefault("uuid", eid)
     rec = EdgeRecord(
         id=eid,
-        updated_at=format_timestamp(),
+        updated_at=ex.store._clock_now(),
         type=view.type,
         from_id=normalize_uuid(view.from_id),
         to_id=normalize_uuid(view.to_id),
@@ -717,7 +717,7 @@ def _persist_edge(ex: Executor, view: RelView) -> RelView:
 
 
 def _store_vector(ex: Executor, record_id: str, prop: str, vec: Any) -> None:
-    from graph_ted_db.store.format import format_timestamp, is_vector_property_name
+    from graph_ted_db.store.format import is_vector_property_name
     from graph_ted_db.store.records import VectorRecord
 
     if not is_vector_property_name(prop):
@@ -733,7 +733,7 @@ def _store_vector(ex: Executor, record_id: str, prop: str, vec: Any) -> None:
         id=record_id,
         property=prop,
         values=floats,
-        updated_at=format_timestamp(),
+        updated_at=ex.store._clock_now(),
         updated_by=ex.updated_by,
     )
     ex.store._put_vector_unlocked(rec)

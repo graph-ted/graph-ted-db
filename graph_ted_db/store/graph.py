@@ -9,7 +9,7 @@ import threading
 from collections import defaultdict
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -17,12 +17,15 @@ from uuid import uuid4
 from graph_ted_db.index.local import LocalIndex
 from graph_ted_db.store.aliases import _GraphStoreAliases
 from graph_ted_db.store.format import (
+    FORMAT_VERSION,
+    LAYOUT_PER_WRITER,
     format_timestamp,
     is_vector_property_name,
+    is_writer_id,
     normalize_uuid,
     shard_id,
 )
-from graph_ted_db.store.init import load_graph_meta
+from graph_ted_db.store.init import load_graph_meta, load_or_create_writer_id
 from graph_ted_db.store.jsonl import (
     append_batch,
     append_jsonl,
@@ -38,8 +41,8 @@ from graph_ted_db.store.lock import (
     exclusive_lock,
     index_dir_for,
     lock_path_for,
-    owned_path_for,
     wal_dir_for,
+    writer_path_for,
 )
 from graph_ted_db.store.lww import resolve
 from graph_ted_db.store.paths import (
@@ -47,6 +50,7 @@ from graph_ted_db.store.paths import (
     discover_shard_stems,
     is_record_file_name,
     shard_jsonl_files,
+    writer_of,
 )
 from graph_ted_db.store.records import (
     EMPTY_LABELS,
@@ -80,6 +84,9 @@ class DoctorReport:
     dangling_edges_tombstoned: list[str] = field(default_factory=list)
     skipped_lines: list[str] = field(default_factory=list)
     conflict_copies: list[str] = field(default_factory=list)
+    writers: list[str] = field(default_factory=list)
+    unregistered_writers: list[str] = field(default_factory=list)
+    legacy_shared_files: list[str] = field(default_factory=list)
     fix: bool = False
 
     def summary(self) -> str:
@@ -92,6 +99,10 @@ class DoctorReport:
             f"dangling edges tombstoned: {len(self.dangling_edges_tombstoned)}",
             f"skipped invalid lines: {len(self.skipped_lines)}",
             f"conflict copies: {len(self.conflict_copies)}",
+            f"writers: {len(self.writers)}",
+            f"writer files without a registration (still syncing?): "
+            f"{len(self.unregistered_writers)}",
+            f"v1 shared files (read only): {len(self.legacy_shared_files)}",
         ]
         for item in self.torn_repaired:
             lines.append(f"  repaired {item}")
@@ -130,16 +141,19 @@ class GraphStore(_GraphStoreAliases):
 
     def __init__(self, root: str | Path, *, data_dir: Path | None = None) -> None:
         self.root = Path(root).expanduser().resolve()
-        self.paths = GraphPaths(self.root)
         self.meta: GraphMeta = load_graph_meta(self.root)
         self.data_dir = data_dir
+        self.writer_id = load_or_create_writer_id(writer_path_for(self.meta.id, data_dir))
+        self.paths = GraphPaths(self.root, writer=self.writer_id)
+        # Hybrid logical clock: the greatest (updated_at, counter) seen in the
+        # store or written here. New writes always sort after it, so an edit
+        # made after seeing a record wins even if this device's clock is behind.
+        self._hlc: tuple[str, int] = ("", 0)
         self._lock_path = lock_path_for(self.meta.id, data_dir)
         self._index_dir = index_dir_for(self.meta.id, data_dir)
         self._index: LocalIndex | None = None
         self._index_fp: tuple[tuple[str, int, int], ...] | None = None
         self._wal_dir = wal_dir_for(self.meta.id, data_dir)
-        self._owned_path = owned_path_for(self.meta.id, data_dir)
-        self._owned: set[str] = self._load_owned()
         self._foreign_torn: list[str] = []
         self._tx: _Txn | None = None
         self._lock_depth = 0
@@ -174,6 +188,7 @@ class GraphStore(_GraphStoreAliases):
         """
         store = cls(root, data_dir=data_dir)
         with store._lock():
+            store._register_writer_unlocked()
             store._recover_files()
             store._replay_wal_unlocked()
             store._rebuild_index_unlocked()
@@ -201,16 +216,17 @@ class GraphStore(_GraphStoreAliases):
     def put_node(self, record: NodeRecord) -> NodeRecord:
         """Write a node record as-is (last write wins). Returns the record."""
         with self._lock():
-            self._put_node_unlocked(record)
-        return record
+            return self._put_node_unlocked(record)
 
-    def _put_node_unlocked(self, record: NodeRecord) -> None:
+    def _put_node_unlocked(self, record: NodeRecord) -> NodeRecord:
+        record = self._stamp(record)
         if self._tx is not None:
             self._tx.ops.append(("put_node", record))
             if self._index is not None:
                 self._index.upsert_node(record)
-            return
+            return record
         self._disk_put_node(record)
+        return record
 
     def _disk_put_node(self, record: NodeRecord) -> None:
         path = self.paths.node_shard(record.id)
@@ -229,16 +245,9 @@ class GraphStore(_GraphStoreAliases):
     def delete_node(self, record_id: str, *, updated_by: str = "") -> Tombstone:
         """Tombstone a node and every live incident edge (DETACH DELETE)."""
         record_id = normalize_uuid(record_id)
-        now = format_timestamp()
-        tomb = Tombstone(
-            id=record_id,
-            kind="node",
-            updated_at=now,
-            updated_by=updated_by,
-        )
         with self._lock():
-            self._delete_node_unlocked(record_id, updated_by=updated_by, now=now)
-        return tomb
+            now = self._clock_now()
+            return self._delete_node_unlocked(record_id, updated_by=updated_by, now=now)
 
     def _delete_node_unlocked(
         self,
@@ -247,7 +256,7 @@ class GraphStore(_GraphStoreAliases):
         updated_by: str = "",
         now: str | None = None,
     ) -> Tombstone:
-        stamp = now or format_timestamp()
+        stamp = now or self._clock_now()
         record_id = normalize_uuid(record_id)
         incident: list[str] = []
         if self._index is not None:
@@ -266,6 +275,7 @@ class GraphStore(_GraphStoreAliases):
             updated_at=stamp,
             updated_by=updated_by,
         )
+        tomb = self._stamp(tomb)
         if self._tx is not None:
             self._tx.ops.append(("delete_node", tomb))
             if self._index is not None:
@@ -292,20 +302,21 @@ class GraphStore(_GraphStoreAliases):
             ValueError: If either endpoint is not a live node.
         """
         with self._lock():
-            self._put_edge_unlocked(record)
-        return record
+            return self._put_edge_unlocked(record)
 
-    def _put_edge_unlocked(self, record: EdgeRecord) -> None:
+    def _put_edge_unlocked(self, record: EdgeRecord) -> EdgeRecord:
         if self._live_node_unlocked(record.from_id) is None:
             raise ValueError(f"edge from_id is not a live node: {record.from_id}")
         if self._live_node_unlocked(record.to_id) is None:
             raise ValueError(f"edge to_id is not a live node: {record.to_id}")
+        record = self._stamp(record)
         if self._tx is not None:
             self._tx.ops.append(("put_edge", record))
             if self._index is not None:
                 self._index.upsert_edge(record)
-            return
+            return record
         self._disk_put_edge(record)
+        return record
 
     def _disk_put_edge(self, record: EdgeRecord) -> None:
         path = self.paths.edge_shard(record.id)
@@ -327,12 +338,11 @@ class GraphStore(_GraphStoreAliases):
         tomb = Tombstone(
             id=record_id,
             kind="edge",
-            updated_at=format_timestamp(),
+            updated_at=self._clock_now(),
             updated_by=updated_by,
         )
         with self._lock():
-            self._delete_edge_unlocked(record_id, updated_by=updated_by, now=tomb.updated_at)
-        return tomb
+            return self._delete_edge_unlocked(record_id, updated_by=updated_by, now=tomb.updated_at)
 
     def _delete_edge_unlocked(
         self,
@@ -345,9 +355,10 @@ class GraphStore(_GraphStoreAliases):
         tomb = Tombstone(
             id=record_id,
             kind="edge",
-            updated_at=now or format_timestamp(),
+            updated_at=now or self._clock_now(),
             updated_by=updated_by,
         )
+        tomb = self._stamp(tomb)
         if self._tx is not None:
             self._tx.ops.append(("delete_edge", tomb))
             if self._index is not None:
@@ -370,14 +381,15 @@ class GraphStore(_GraphStoreAliases):
     def put_vector(self, record: VectorRecord) -> VectorRecord:
         """Write an embedding record (stored under `vectors/<property>/`). Returns the record."""
         with self._lock():
-            self._put_vector_unlocked(record)
-        return record
+            return self._put_vector_unlocked(record)
 
-    def _put_vector_unlocked(self, record: VectorRecord) -> None:
+    def _put_vector_unlocked(self, record: VectorRecord) -> VectorRecord:
+        record = self._stamp(record)
         if self._tx is not None:
             self._tx.ops.append(("put_vector", record))
-            return
+            return record
         self._disk_put_vector(record)
+        return record
 
     def _disk_put_vector(self, record: VectorRecord) -> None:
         path = self.paths.vector_shard(record.property, record.id)
@@ -414,10 +426,11 @@ class GraphStore(_GraphStoreAliases):
             id=record_id,
             kind="vector",
             property=property_name,
-            updated_at=format_timestamp(),
+            updated_at=self._clock_now(),
             updated_by=updated_by,
         )
         with self._lock():
+            tomb = self._stamp(replace(tomb, updated_at=self._clock_now()))
             self._append(self.paths.deleted_jsonl, tomb.to_jsonl())
             self._touch_index(self.paths.deleted_jsonl)
         return tomb
@@ -443,7 +456,7 @@ class GraphStore(_GraphStoreAliases):
         """
         rec = NodeRecord(
             id=normalize_uuid(record_id) if record_id else str(uuid4()),
-            updated_at=format_timestamp(),
+            updated_at=self._clock_now(),
             labels=tuple(labels),
             props=dict(props or {}),
             updated_by=updated_by,
@@ -475,7 +488,7 @@ class GraphStore(_GraphStoreAliases):
         """
         rec = EdgeRecord(
             id=normalize_uuid(record_id) if record_id else str(uuid4()),
-            updated_at=format_timestamp(),
+            updated_at=self._clock_now(),
             type=type,
             from_id=normalize_uuid(from_id),
             to_id=normalize_uuid(to_id),
@@ -710,7 +723,7 @@ class GraphStore(_GraphStoreAliases):
                 for edge in dangling
             ]
             if dangling and fix:
-                now = format_timestamp()
+                now = self._clock_now()
                 for edge in dangling:
                     self._delete_edge_unlocked(edge.id, updated_by="doctor", now=now)
                 report.dangling_edges_tombstoned = list(report.dangling_edges_found)
@@ -719,6 +732,19 @@ class GraphStore(_GraphStoreAliases):
             report.labels_rebuilt = True
             report.skipped_lines = list(self.skipped_lines)
             report.conflict_copies = [str(p) for p in self._conflict_copy_paths()]
+            report.writers = self.writers()
+            seen: set[str] = set()
+            legacy: list[str] = []
+            for path in self._managed_files():
+                if not path.name.endswith(".jsonl"):
+                    continue
+                owner = writer_of(path.name)
+                if owner is not None:
+                    seen.add(owner)
+                elif path.stat().st_size > 0 and str(path) not in report.conflict_copies:
+                    legacy.append(str(path))
+            report.unregistered_writers = sorted(seen - set(report.writers))
+            report.legacy_shared_files = legacy
         return report
 
     def refresh_index(self) -> None:
@@ -819,34 +845,70 @@ class GraphStore(_GraphStoreAliases):
     def _rel(self, path: Path) -> str:
         return path.resolve().relative_to(self.root).as_posix()
 
-    def _load_owned(self) -> set[str]:
-        try:
-            data = json.loads(self._owned_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return set()
-        files = data.get("files") if isinstance(data, dict) else None
-        return {f for f in files if isinstance(f, str)} if isinstance(files, list) else set()
-
     def _owns(self, path: Path) -> bool:
-        return self._rel(path) in self._owned
-
-    def _claim(self, path: Path) -> bool:
-        """Record `path` as written by this device. Returns whether it was already ours."""
-        rel = self._rel(path)
-        if rel in self._owned:
-            return True
-        self._owned.add(rel)
-        self._owned_path.parent.mkdir(parents=True, exist_ok=True)
-        # No fsync: a lost claim only means a torn tail in this file is left
-        # in place and skipped, never that data is dropped.
-        tmp = self._owned_path.with_name(self._owned_path.name + ".tmp")
-        tmp.write_text(json.dumps({"files": sorted(self._owned)}), encoding="utf-8")
-        os.replace(tmp, self._owned_path)
-        return False
+        return writer_of(path.name) == self.writer_id
 
     def _append(self, path: Path, line: str) -> None:
-        # Persist the claim first, so a crash mid-append still repairs it.
-        append_jsonl(path, line, repair=self._claim(path))
+        # Only this writer's own files are ever appended to (format v2).
+        append_jsonl(path, line, repair=self._owns(path))
+
+    def _register_writer_unlocked(self) -> None:
+        """Announce this writer in meta/writers/ and mark the store format v2.
+
+        Each writer only ever creates its own registration file, so the
+        writers list never conflicts in a sync client.
+        """
+        reg = self.paths.writers_dir / f"{self.writer_id}.json"
+        if not reg.is_file():
+            self.paths.writers_dir.mkdir(parents=True, exist_ok=True)
+            replace_json_file(
+                reg,
+                {
+                    "writer": self.writer_id,
+                    "format_version": FORMAT_VERSION,
+                    "created_at": format_timestamp(),
+                },
+            )
+        if self.meta.format_version < FORMAT_VERSION:
+            extras = dict(self.meta.extras)
+            extras["layout"] = LAYOUT_PER_WRITER
+            self.meta = replace(self.meta, format_version=FORMAT_VERSION, extras=extras)
+            replace_json_file(self.paths.graph_json, self.meta.to_dict())
+
+    def writers(self) -> list[str]:
+        """Writer ids registered in meta/writers/ (synced from every device)."""
+        found: set[str] = set()
+        if self.paths.writers_dir.is_dir():
+            for child in self.paths.writers_dir.iterdir():
+                stem = child.name.removesuffix(".json")
+                if child.name.endswith(".json") and is_writer_id(stem):
+                    found.add(stem)
+        return sorted(found)
+
+    # --- hybrid logical clock ---
+
+    def _observe(self, updated_at: str, counter: int) -> None:
+        # format_timestamp output is fixed-width, so strings sort like times.
+        if (updated_at, counter) > self._hlc:
+            self._hlc = (updated_at, counter)
+
+    def _clock_now(self) -> str:
+        """Wall time for a new version: never earlier than anything seen."""
+        now = format_timestamp()
+        return max(now, self._hlc[0])
+
+    def _stamp(self, record: Any) -> Any:
+        """Give a version this writer's id and the next HLC counter."""
+        wall, counter = self._hlc
+        if record.updated_at == wall:
+            counter += 1
+        elif record.updated_at > wall:
+            counter = 0
+        else:
+            # An explicit older timestamp (put_* as-is): keep it, it loses LWW.
+            return replace(record, writer=self.writer_id, counter=0)
+        self._hlc = (record.updated_at, counter)
+        return replace(record, writer=self.writer_id, counter=counter)
 
     def _foreign_record_files(self) -> list[Path]:
         return [
@@ -908,7 +970,11 @@ class GraphStore(_GraphStoreAliases):
         # The canonical shard may be absent (rclone bisync renames both sides),
         # so filter by name rather than dropping the first file.
         def copies(directory: Path, stem: str) -> list[Path]:
-            return [p for p in shard_jsonl_files(directory, stem) if p.name != f"{stem}.jsonl"]
+            return [
+                p
+                for p in shard_jsonl_files(directory, stem)
+                if p.name != f"{stem}.jsonl" and writer_of(p.name) is None
+            ]
 
         found: list[Path] = []
         for directory in (self.paths.nodes_dir, self.paths.edges_dir):
@@ -1042,23 +1108,32 @@ class GraphStore(_GraphStoreAliases):
     def _parse_nodes(self, path: Path) -> Iterator[NodeRecord]:
         for lineno, obj in iter_json_objects(path, skipped=self.skipped_lines):
             try:
-                yield NodeRecord.from_dict(obj)
+                rec = NodeRecord.from_dict(obj)
             except ValueError:
                 self.skipped_lines.append(f"{path}:{lineno}")
+                continue
+            self._observe(rec.updated_at, rec.counter)
+            yield rec
 
     def _parse_edges(self, path: Path) -> Iterator[EdgeRecord]:
         for lineno, obj in iter_json_objects(path, skipped=self.skipped_lines):
             try:
-                yield EdgeRecord.from_dict(obj)
+                edge = EdgeRecord.from_dict(obj)
             except ValueError:
                 self.skipped_lines.append(f"{path}:{lineno}")
+                continue
+            self._observe(edge.updated_at, edge.counter)
+            yield edge
 
     def _parse_vectors(self, path: Path, property_name: str) -> Iterator[VectorRecord]:
         for lineno, obj in iter_json_objects(path, skipped=self.skipped_lines):
             try:
-                yield VectorRecord.from_dict(obj, property=property_name)
+                vec = VectorRecord.from_dict(obj, property=property_name)
             except ValueError:
                 self.skipped_lines.append(f"{path}:{lineno}")
+                continue
+            self._observe(vec.updated_at, vec.counter)
+            yield vec
 
     def _tombstone_files(self) -> list[Path]:
         return shard_jsonl_files(self.paths.meta_dir, "deleted")
@@ -1067,9 +1142,12 @@ class GraphStore(_GraphStoreAliases):
         for path in self._tombstone_files():
             for lineno, obj in iter_json_objects(path, skipped=self.skipped_lines):
                 try:
-                    yield Tombstone.from_dict(obj)
+                    tomb = Tombstone.from_dict(obj)
                 except ValueError:
                     self.skipped_lines.append(f"{path}:{lineno}")
+                    continue
+                self._observe(tomb.updated_at, tomb.counter)
+                yield tomb
 
     def _tombstones(
         self, kind: str, record_id: str, property_name: str | None = None
@@ -1180,7 +1258,7 @@ class GraphStore(_GraphStoreAliases):
                 picked = resolve(lives, tombs_by_id.get(record_id, []))
                 if picked is not None and not picked.is_tombstone:
                     lines.append(picked.payload.to_jsonl())
-            replace_jsonl(self.paths.nodes_dir / f"{stem}.jsonl", lines)
+            replace_jsonl(self.paths.own_file(self.paths.nodes_dir, stem), lines)
 
     def _compact_edges(self) -> None:
         tombs_by_id = self._tombstones_by_id("edge")
@@ -1198,7 +1276,7 @@ class GraphStore(_GraphStoreAliases):
                 edge = picked.payload
                 if edge.from_id in live_nodes and edge.to_id in live_nodes:
                     lines.append(edge.to_jsonl())
-            replace_jsonl(self.paths.edges_dir / f"{stem}.jsonl", lines)
+            replace_jsonl(self.paths.own_file(self.paths.edges_dir, stem), lines)
 
     def _compact_vectors(self) -> None:
         if not self.paths.vectors_dir.is_dir():
@@ -1220,7 +1298,7 @@ class GraphStore(_GraphStoreAliases):
                     picked = resolve(lives, tombs_by_id.get(record_id, []))
                     if picked is not None and not picked.is_tombstone:
                         lines.append(picked.payload.to_jsonl())
-                replace_jsonl(prop_dir / f"{stem}.jsonl", lines)
+                replace_jsonl(self.paths.own_file(prop_dir, stem), lines)
 
     def _compact_tombstones(self) -> None:
         best: dict[tuple[str, str, str | None], Tombstone] = {}

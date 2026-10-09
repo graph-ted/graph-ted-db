@@ -53,6 +53,18 @@ def _record_version(data: Mapping[str, Any]) -> int:
     return v
 
 
+def _clock_fields(writer: str, counter: int) -> dict[str, Any]:
+    return {"writer": writer, "counter": counter} if writer else {}
+
+
+def _read_clock(data: Mapping[str, Any]) -> dict[str, Any]:
+    writer = _optional_str(data, "writer")
+    counter = data.get("counter", 0)
+    if not isinstance(counter, int) or isinstance(counter, bool) or counter < 0:
+        raise ValueError("counter must be a non-negative int")
+    return {"writer": writer, "counter": counter}
+
+
 _GRAPH_META_KEYS = frozenset(
     {"format", "format_version", "id", "name", "created_at", "shard_fanout"}
 )
@@ -122,6 +134,8 @@ class NodeRecord:
         props: JSON-compatible property values.
         updated_by: Optional author string; empty unless the writer sets one.
         v: Record schema version.
+        writer: Random id of the device that wrote this version (format v2).
+        counter: Hybrid-logical-clock counter within `updated_at` (format v2).
     """
 
     id: str
@@ -130,6 +144,8 @@ class NodeRecord:
     props: dict[str, Any]
     updated_by: str = ""
     v: int = 1
+    writer: str = ""
+    counter: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -137,9 +153,13 @@ class NodeRecord:
             "v": self.v,
             "updated_at": self.updated_at,
             "updated_by": self.updated_by,
+            **self._clock_fields(),
             "labels": list(self.labels),
             "props": self.props,
         }
+
+    def _clock_fields(self) -> dict[str, Any]:
+        return _clock_fields(self.writer, self.counter)
 
     def to_jsonl(self) -> str:
         return json.dumps(self.to_dict(), separators=(",", ":"), ensure_ascii=False)
@@ -154,6 +174,7 @@ class NodeRecord:
             v=_record_version(data),
             updated_at=format_timestamp(parse_timestamp(_require_str(data, "updated_at"))),
             updated_by=_optional_str(data, "updated_by"),
+            **_read_clock(data),
             labels=tuple(labels),
             props=_require_props(data),
         )
@@ -175,6 +196,8 @@ class EdgeRecord:
         props: JSON-compatible property values.
         updated_by: Optional author string; empty unless the writer sets one.
         v: Record schema version.
+        writer: Random id of the device that wrote this version (format v2).
+        counter: Hybrid-logical-clock counter within `updated_at` (format v2).
     """
 
     id: str
@@ -185,6 +208,8 @@ class EdgeRecord:
     props: dict[str, Any]
     updated_by: str = ""
     v: int = 1
+    writer: str = ""
+    counter: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -192,11 +217,15 @@ class EdgeRecord:
             "v": self.v,
             "updated_at": self.updated_at,
             "updated_by": self.updated_by,
+            **self._clock_fields(),
             "type": self.type,
             "from": self.from_id,
             "to": self.to_id,
             "props": self.props,
         }
+
+    def _clock_fields(self) -> dict[str, Any]:
+        return _clock_fields(self.writer, self.counter)
 
     def to_jsonl(self) -> str:
         return json.dumps(self.to_dict(), separators=(",", ":"), ensure_ascii=False)
@@ -208,6 +237,7 @@ class EdgeRecord:
             v=_record_version(data),
             updated_at=format_timestamp(parse_timestamp(_require_str(data, "updated_at"))),
             updated_by=_optional_str(data, "updated_by"),
+            **_read_clock(data),
             type=_require_str(data, "type"),
             from_id=normalize_uuid(_require_str(data, "from")),
             to_id=normalize_uuid(_require_str(data, "to")),
@@ -230,6 +260,8 @@ class VectorRecord:
         property: Vector property name, e.g. `"name_embedding"`.
         updated_by: Optional author string; empty unless the writer sets one.
         v: Record schema version.
+        writer: Random id of the device that wrote this version (format v2).
+        counter: Hybrid-logical-clock counter within `updated_at` (format v2).
         dtype: Encoding of `vec_b64` (`"f32le"`).
     """
 
@@ -240,6 +272,8 @@ class VectorRecord:
     property: str
     updated_by: str = ""
     v: int = 1
+    writer: str = ""
+    counter: int = 0
     dtype: str = "f32le"
 
     def to_dict(self) -> dict[str, Any]:
@@ -248,10 +282,14 @@ class VectorRecord:
             "v": self.v,
             "updated_at": self.updated_at,
             "updated_by": self.updated_by,
+            **self._clock_fields(),
             "dim": self.dim,
             "dtype": self.dtype,
             "vec": self.vec_b64,
         }
+
+    def _clock_fields(self) -> dict[str, Any]:
+        return _clock_fields(self.writer, self.counter)
 
     def to_jsonl(self) -> str:
         return json.dumps(self.to_dict(), separators=(",", ":"), ensure_ascii=False)
@@ -285,6 +323,8 @@ class VectorRecord:
                 e.g. `datetime.now(timezone.utc)`.
             updated_by: Optional author string.
             v: Record schema version.
+        writer: Random id of the device that wrote this version (format v2).
+        counter: Hybrid-logical-clock counter within `updated_at` (format v2).
         """
         dim = len(values)
         raw = struct.pack(f"<{dim}f", *values)
@@ -324,6 +364,7 @@ class VectorRecord:
             v=_record_version(data),
             updated_at=format_timestamp(parse_timestamp(_require_str(data, "updated_at"))),
             updated_by=_optional_str(data, "updated_by"),
+            **_read_clock(data),
             dim=dim,
             vec_b64=vec,
             property=property,
@@ -344,6 +385,8 @@ class Tombstone:
         updated_at: UTC timestamp of the deletion.
         updated_by: Optional author string; empty unless the writer sets one.
         v: Record schema version.
+        writer: Random id of the device that wrote this version (format v2).
+        counter: Hybrid-logical-clock counter within `updated_at` (format v2).
         property: Vector property name, for `kind == "vector"` only.
     """
 
@@ -352,6 +395,8 @@ class Tombstone:
     updated_at: str
     updated_by: str = ""
     v: int = 1
+    writer: str = ""
+    counter: int = 0
     property: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -361,10 +406,14 @@ class Tombstone:
             "kind": self.kind,
             "updated_at": self.updated_at,
             "updated_by": self.updated_by,
+            **self._clock_fields(),
         }
         if self.kind == "vector":
             payload["property"] = self.property
         return payload
+
+    def _clock_fields(self) -> dict[str, Any]:
+        return _clock_fields(self.writer, self.counter)
 
     def to_jsonl(self) -> str:
         return json.dumps(self.to_dict(), separators=(",", ":"), ensure_ascii=False)
@@ -384,6 +433,7 @@ class Tombstone:
             kind=kind,
             updated_at=format_timestamp(parse_timestamp(_require_str(data, "updated_at"))),
             updated_by=_optional_str(data, "updated_by"),
+            **_read_clock(data),
             v=_record_version(data),
             property=property_name,
         )

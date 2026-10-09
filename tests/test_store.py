@@ -73,7 +73,7 @@ def test_conflict_copy_union_merge(tmp_path: Path):
     bob_id = "00000000-0000-4000-8000-00000000000b"
     g.make_node(record_id=alice_id, props={"name": "Alice"})
     # Simulate OneDrive forking the shard while another user wrote Bob.
-    canonical = g.paths.nodes_dir / "00.jsonl"
+    canonical = g.paths.node_shard(alice_id)
     conflict = g.paths.nodes_dir / "00-DESKTOP-conflict-2026-08-25.jsonl"
     bob = NodeRecord(
         id=bob_id,
