@@ -1,0 +1,12 @@
+# Weekly update PRs for the GitHub Actions used by CI and release, and for the
+# docs toolchain. The library itself has no runtime dependencies.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
