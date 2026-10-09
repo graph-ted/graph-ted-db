@@ -71,3 +71,70 @@ jobs:
 
       - name: Test
         run: python -m pytest
+
+  # Build once, then install the wheel and the sdist into clean venvs on every
+  # supported OS and Python. No checkout on the install side beyond the README
+  # and the check script, so a missing runtime dependency fails here.
+  build:
+    name: build sdist + wheel
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: |
+          python -m pip install build
+          python -m build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  install:
+    name: install ${{ matrix.artifact }} (${{ matrix.os }}, Python ${{ matrix.python }})
+    needs: build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        artifact: [wheel, sdist]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: |
+            README.md
+            scripts/check_quickstart.py
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - name: Clean venv and install
+        run: |
+          python -m venv "$RUNNER_TEMP/venv"
+          if [ "$RUNNER_OS" = "Windows" ]; then bin="$RUNNER_TEMP/venv/Scripts"; else bin="$RUNNER_TEMP/venv/bin"; fi
+          echo "$bin" >> "$GITHUB_PATH"
+          if [ "${{ matrix.artifact }}" = "wheel" ]; then pkg=$(ls dist/*.whl); else pkg=$(ls dist/*.tar.gz); fi
+          "$bin/python" -m pip install --upgrade pip
+          "$bin/python" -m pip install "$pkg"
+      - name: No runtime dependencies
+        run: |
+          extra=$(python -m pip list --format=freeze --exclude-editable | grep -viE '^(pip|setuptools|wheel|graph[-_]ted[-_]db)==' || true)
+          if [ -n "$extra" ]; then echo "unexpected runtime deps: $extra"; exit 1; fi
+      - name: Import, CLI, quick start
+        run: |
+          cd "$RUNNER_TEMP"
+          python -c "import graph_ted_db, sys; print(graph_ted_db.__name__, sys.version)"
+          graph-ted-db --version
+          graphted-db --help > /dev/null
+          python "$GITHUB_WORKSPACE/scripts/check_quickstart.py" "$GITHUB_WORKSPACE/README.md"
