@@ -132,6 +132,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     compact_p.add_argument("path", type=Path)
 
+    export_p = sub.add_parser(
+        "export", help="write the current state (live records) to one JSONL file, for backup"
+    )
+    export_p.add_argument("path", type=Path)
+    export_p.add_argument("out", type=Path, help="export file (outside the graph folder)")
+
+    import_p = sub.add_parser("import", help="create a new graph folder from an export file")
+    import_p.add_argument("export_file", type=Path)
+    import_p.add_argument("dest", type=Path, help="new graph folder (must not exist yet)")
+    import_p.add_argument("--name", default=None)
+
     doctor_p = sub.add_parser(
         "doctor",
         help="repair torn JSONL, rebuild labels, report dangling edges (--fix tombstones them)",
@@ -230,8 +241,18 @@ def _dispatch(args: argparse.Namespace) -> int:
             )
             return 1 if any(problems.values()) else 0
         return 0
+    if args.command == "import":
+        from graph_ted_db.store import import_export
+
+        imported = import_export(args.export_file, args.dest, name=args.name)
+        print(f"imported into {args.dest} id={imported.meta.id}")
+        return 0
 
     store = _store(args.path)
+    if args.command == "export":
+        counts = store.export(args.out)
+        print(" ".join(f"{k}={v}" for k, v in counts.items()))
+        return 0
 
     if args.command == "put-node":
         rec = store.make_node(
