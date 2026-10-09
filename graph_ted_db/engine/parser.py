@@ -77,9 +77,7 @@ class Parser:
             if isinstance(tok.value, str) and tok.value:
                 return tok.value
             return tok.kind
-        raise CypherError(
-            f"expected IDENT, got {self.cur.kind}", pos=self.cur.pos
-        )
+        raise CypherError(f"expected IDENT, got {self.cur.kind}", pos=self.cur.pos)
 
     def parse(self) -> Query | UnionQuery:
         parts: list[Query] = []
@@ -305,7 +303,11 @@ class Parser:
         if "fulltext" in lower or "querynodes" in lower or "queryrelationships" in lower:
             return CallClause(name, tuple(args), tuple(yields))
         if self.at("EOF") or yields:
-            return CallClause(name, tuple(args), tuple(yields)) if args or yields else NoopClause("call")
+            return (
+                CallClause(name, tuple(args), tuple(yields))
+                if args or yields
+                else NoopClause("call")
+            )
         return CallClause(name, tuple(args), tuple(yields)) if args else self.parse_ddl_rest("call")
 
     def parse_unwind(self) -> UnwindClause:

@@ -83,9 +83,7 @@ def _rel_type(attrs: dict[str, Any]) -> str:
     if rel is None:
         return DEFAULT_REL_TYPE
     if not isinstance(rel, str) or not rel:
-        raise TypeError(
-            "type must be a non-empty string (relationship type; default RELATED)"
-        )
+        raise TypeError("type must be a non-empty string (relationship type; default RELATED)")
     return rel
 
 
@@ -205,9 +203,7 @@ class _GraphStoreAliases:
             raise KeyError(n)
         return self.delete_node(alias_record_id(n))
 
-    def remove_edge(
-        self, u: str | int, v: str | int, *, type: str | None = None
-    ) -> Tombstone:
+    def remove_edge(self, u: str | int, v: str | int, *, type: str | None = None) -> Tombstone:
         """Delete one live directed edge from ``u`` to ``v`` (``delete_edge``).
 
         Optional ``type`` selects the relationship type. When several edges
@@ -219,9 +215,7 @@ class _GraphStoreAliases:
             raise KeyError((u, v) if type is None else (u, v, type))
         return self.delete_edge(edge.id)
 
-    def _alias_edge(
-        self, u: str | int, v: str | int, rel_type: str | None
-    ) -> EdgeRecord | None:
+    def _alias_edge(self, u: str | int, v: str | int, rel_type: str | None) -> EdgeRecord | None:
         src = alias_record_id(u)
         dst = alias_record_id(v)
         for edge in self.iter_edges():

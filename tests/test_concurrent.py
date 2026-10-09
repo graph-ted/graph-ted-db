@@ -60,8 +60,7 @@ def test_inprocess_concurrent_execute(tmp_path: Path):
     root, store = _open(tmp_path)
     anchor = _uuid(1)
     store.execute(
-        "CREATE (a:Entity {uuid: $uuid, name: 'anchor', group_id: 'batch'}) "
-        "RETURN a.uuid AS uuid",
+        "CREATE (a:Entity {uuid: $uuid, name: 'anchor', group_id: 'batch'}) RETURN a.uuid AS uuid",
         {"uuid": anchor},
     )
     errors: list[BaseException] = []
@@ -107,8 +106,7 @@ def test_http_concurrent_writes_and_reads(tmp_path: Path):
     root, store = _open(tmp_path)
     anchor = _uuid(1)
     store.execute(
-        "CREATE (a:Entity {uuid: $uuid, name: 'anchor', group_id: 'batch'}) "
-        "RETURN a.uuid AS uuid",
+        "CREATE (a:Entity {uuid: $uuid, name: 'anchor', group_id: 'batch'}) RETURN a.uuid AS uuid",
         {"uuid": anchor},
     )
     server = make_server(store, "127.0.0.1", 0, max_records=1000)

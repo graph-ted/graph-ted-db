@@ -195,7 +195,12 @@ def dump_tokens(tokens: dict) -> str:
 def _css_string(value: str) -> str:
     value = value.strip()
     inner = value
-    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'" and value.count(value[0]) == 2:
+    if (
+        len(value) >= 2
+        and value[0] == value[-1]
+        and value[0] in "\"'"
+        and value.count(value[0]) == 2
+    ):
         inner = value[1:-1]
     if re.fullmatch(r"[A-Za-z0-9 ]+", inner):
         return f'"{inner}"'
@@ -331,7 +336,9 @@ def _optional_groups(tokens: dict) -> str:
     radius = tokens.get("radius")
     if isinstance(radius, dict) and radius:
         radius = {key: _px(value, root) for key, value in radius.items()}
-        panel = next((radius[key] for key in ("md", "l3", "default", "base", "sm") if key in radius), None)
+        panel = next(
+            (radius[key] for key in ("md", "l3", "default", "base", "sm") if key in radius), None
+        )
         # Chakra buttons and inputs use the l2 control radius; panels use md.
         control = next((radius[key] for key in ("l2", "sm") if key in radius), panel)
         lines = [":root {"]
@@ -395,7 +402,11 @@ def _optional_groups(tokens: dict) -> str:
         card_key = next((key for key in ("card", "md", "default") if key in shadow), None)
         card = None
         if card_key:
-            card = shadow[card_key] if isinstance(shadow[card_key], str) else f"var(--gt-shadow-{_var_key(card_key)})"
+            card = (
+                shadow[card_key]
+                if isinstance(shadow[card_key], str)
+                else f"var(--gt-shadow-{_var_key(card_key)})"
+            )
         if card:
             lines.extend(
                 [
@@ -738,13 +749,17 @@ def chakra_defaults(frontend: Path) -> dict:
         table["radii." + key_path[-1]] = value
     for key_path, value in _chakra_tokens(theme, "semantic-tokens/radii.js"):
         radius[key_path[-1]] = _chakra_resolve(value, table)
-    spacing = {key_path[-1]: value for key_path, value in _chakra_tokens(theme, "tokens/spacing.js")}
+    spacing = {
+        key_path[-1]: value for key_path, value in _chakra_tokens(theme, "tokens/spacing.js")
+    }
     shadow: dict[str, dict[str, str]] = {}
     for key_path, value in _chakra_tokens(theme, "semantic-tokens/shadows.js"):
         if len(key_path) >= 2 and key_path[-2] in {"_light", "_dark"}:
             scheme = "light" if key_path[-2] == "_light" else "dark"
             shadow.setdefault(key_path[-1], {})[scheme] = _chakra_resolve(value, table)
-    font_sizes = {key_path[-1]: value for key_path, value in _chakra_tokens(theme, "tokens/font-sizes.js")}
+    font_sizes = {
+        key_path[-1]: value for key_path, value in _chakra_tokens(theme, "tokens/font-sizes.js")
+    }
     text_styles: dict[str, dict[str, str]] = {}
     for key_path, value in _chakra_tokens(theme, "text-styles.js"):
         if len(key_path) == 3 and key_path[1] == "value":
@@ -934,9 +949,7 @@ def enforce_contrast(tokens: dict) -> list[str]:
     if str(light.get("link", "")).lower() == "#009999":
         light["link"] = interactive
         light["accent"] = interactive
-        notes.append(
-            "light link #009999 fails AA on white; stylesheet uses interactive #007A7A."
-        )
+        notes.append("light link #009999 fails AA on white; stylesheet uses interactive #007A7A.")
     if str(light.get("header", "")).lower() == "#009999":
         light["header"] = interactive
         light["header_text"] = on_interactive
@@ -1036,7 +1049,7 @@ def apply_extraction(tokens: dict, found: dict, git_ref: str | None = None) -> d
     if found["font"].get("text"):
         provenance["font.text"] = (
             "App fonts.body token, copied as written. Inter is self-hosted here; "
-            "\"Inter Variable\" is the app's @fontsource-variable family name and falls through to it."
+            '"Inter Variable" is the app\'s @fontsource-variable family name and falls through to it.'
         )
     if found["icon_set"]:
         families = ", ".join(found.get("icon_families") or [])

@@ -61,6 +61,3 @@ def load_graph_meta(path: str | Path) -> GraphMeta:
         return GraphMeta.from_dict(data)
     except ValueError as exc:
         raise GraphFormatError(str(exc)) from exc
-
-
-

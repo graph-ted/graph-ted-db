@@ -71,9 +71,7 @@ def evaluate(expr: Any, row: dict[str, Any], params: dict[str, Any]) -> Any:
     if isinstance(expr, Call):
         spec = lookup(expr.name)
         if spec.aggregating:
-            raise CypherError(
-                f"{expr.name}() is aggregating and can only appear in WITH/RETURN"
-            )
+            raise CypherError(f"{expr.name}() is aggregating and can only appear in WITH/RETURN")
         args = [evaluate(arg, row, params) for arg in expr.args]
         return spec.handler(*args)
     if isinstance(expr, Case):
@@ -148,8 +146,10 @@ def _children(expr: Any) -> list[Any]:
     if isinstance(expr, MapLit):
         return [v for _, v in expr.items]
     if isinstance(expr, ListComp):
-        return [expr.source] + ([expr.where] if expr.where else []) + (
-            [expr.map_expr] if expr.map_expr else []
+        return (
+            [expr.source]
+            + ([expr.where] if expr.where else [])
+            + ([expr.map_expr] if expr.map_expr else [])
         )
     return []
 
@@ -182,9 +182,7 @@ def _binary(expr: BinaryOp, row: dict[str, Any], params: dict[str, Any]) -> Any:
             evaluate(expr.right, row, params)
         )
     if expr.op == "OR":
-        return _truth(evaluate(expr.left, row, params)) or _truth(
-            evaluate(expr.right, row, params)
-        )
+        return _truth(evaluate(expr.left, row, params)) or _truth(evaluate(expr.right, row, params))
     left = evaluate(expr.left, row, params)
     right = evaluate(expr.right, row, params)
     if expr.op == "IN":
@@ -211,7 +209,9 @@ def _binary(expr: BinaryOp, row: dict[str, Any], params: dict[str, Any]) -> Any:
                 return left_key <= right_key
             return left_key >= right_key
         except TypeError as exc:
-            raise CypherError(f"cannot compare {type(left).__name__} with {type(right).__name__}") from exc
+            raise CypherError(
+                f"cannot compare {type(left).__name__} with {type(right).__name__}"
+            ) from exc
     if expr.op == "+":
         return _plus(left, right)
     if expr.op == "-":
@@ -236,9 +236,7 @@ def _subscript(target: Any, index: Any) -> Any:
         return target.get(index)
     if isinstance(target, (list, tuple, str)):
         if isinstance(index, bool) or not isinstance(index, (int, float)):
-            raise CypherError(
-                f"list index must be a number, got {type(index).__name__}"
-            )
+            raise CypherError(f"list index must be a number, got {type(index).__name__}")
         i = int(index)
         length = len(target)
         if i < 0:

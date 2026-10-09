@@ -149,9 +149,7 @@ def test_delete_rel_by_property_leaves_other_group(tmp_path: Path):
     g.execute("MATCH ()-[r]->() WHERE r.group_id = $g DELETE r", {"g": "alpha"})
     left = {edge.id for edge in g.iter_edges()}
     assert left == {edge.id for edge in edges["beta"]}
-    alpha_nodes = g.execute(
-        "MATCH (n) WHERE n.group_id = 'alpha' RETURN n.name AS name"
-    )
+    alpha_nodes = g.execute("MATCH (n) WHERE n.group_id = 'alpha' RETURN n.name AS name")
     assert len(alpha_nodes) == 8
 
 

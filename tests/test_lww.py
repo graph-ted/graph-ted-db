@@ -25,18 +25,14 @@ def test_newer_timestamp_wins():
 def test_tombstone_beats_live_on_equal_timestamp():
     live = candidate_from_live(_node("2026-08-25T12:00:00Z", "live"))
     dead = candidate_from_tombstone(
-        Tombstone.from_dict(
-            {"id": ID, "kind": "node", "updated_at": "2026-08-25T12:00:00Z"}
-        )
+        Tombstone.from_dict({"id": ID, "kind": "node", "updated_at": "2026-08-25T12:00:00Z"})
     )
     assert winner(live, dead).is_tombstone is True
 
 
 def test_live_with_later_timestamp_resurrects():
     dead = candidate_from_tombstone(
-        Tombstone.from_dict(
-            {"id": ID, "kind": "node", "updated_at": "2026-08-25T12:00:00Z"}
-        )
+        Tombstone.from_dict({"id": ID, "kind": "node", "updated_at": "2026-08-25T12:00:00Z"})
     )
     live = candidate_from_live(_node("2026-08-25T12:00:01Z", "back"))
     picked = winner(dead, live)

@@ -31,8 +31,7 @@ try:
     )
 except ImportError as exc:  # pragma: no cover
     raise ImportError(
-        "GraphTedDbDriver requires graphiti-core. "
-        "Install it in the Graphiti MCP environment."
+        "GraphTedDbDriver requires graphiti-core. Install it in the Graphiti MCP environment."
     ) from exc
 
 
@@ -77,12 +76,8 @@ class GraphTedDbSession(GraphDriverSession):
             return None
         if self.driver._http:
             if isinstance(query, list):
-                statements = [
-                    (str(cypher), dict(params or {})) for cypher, params in query
-                ]
-                await asyncio.to_thread(
-                    post_cypher_many, self.driver._http, statements
-                )
+                statements = [(str(cypher), dict(params or {})) for cypher, params in query]
+                await asyncio.to_thread(post_cypher_many, self.driver._http, statements)
             else:
                 await asyncio.to_thread(
                     post_cypher,
@@ -119,9 +114,7 @@ class GraphTedDbSession(GraphDriverSession):
                 statements = self._batch
                 self._batch = None
                 if statements:
-                    await asyncio.to_thread(
-                        post_cypher_many, self.driver._http, statements
-                    )
+                    await asyncio.to_thread(post_cypher_many, self.driver._http, statements)
                 return result
             except Exception:
                 self._batch = None
@@ -175,9 +168,7 @@ class GraphTedDbDriver(GraphDriver):
         if self.store._tx is not None or self.store._lock_depth:
             rows = self.store.execute(str(cypher_query_), params)
         else:
-            rows = await asyncio.to_thread(
-                self.store.execute, str(cypher_query_), params
-            )
+            rows = await asyncio.to_thread(self.store.execute, str(cypher_query_), params)
         return rows, None, None
 
     def session(self, database: str | None = None) -> GraphTedDbSession:
@@ -202,9 +193,7 @@ class GraphTedDbDriver(GraphDriver):
                 await asyncio.to_thread(get_health, self._http)
                 return
             except ValueError:
-                rows = await asyncio.to_thread(
-                    post_cypher, self._http, "RETURN 1 AS ok"
-                )
+                rows = await asyncio.to_thread(post_cypher, self._http, "RETURN 1 AS ok")
         else:
             assert self.store is not None
             rows = await asyncio.to_thread(self.store.execute, "RETURN 1 AS ok")

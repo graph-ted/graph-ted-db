@@ -29,7 +29,9 @@ def _open(tmp_path: Path, name: str = "g") -> GraphStore:
 
 
 def _node(rec_id: str, name: str, at: str | None = None) -> NodeRecord:
-    return NodeRecord(id=rec_id, updated_at=at or format_timestamp(), labels=("Entity",), props={"name": name})
+    return NodeRecord(
+        id=rec_id, updated_at=at or format_timestamp(), labels=("Entity",), props={"name": name}
+    )
 
 
 @pytest.mark.parametrize(
@@ -61,7 +63,9 @@ def test_bisync_renamed_shard_stays_visible(tmp_path: Path, suffixes: tuple[str,
     shard = g.paths.node_shard(A)
     # bisync: both sides renamed, canonical name gone.
     os.replace(shard, shard.with_name(shard.name + suffixes[0]))
-    shard.with_name(shard.name + suffixes[1]).write_text(_node(B, "bob").to_jsonl() + "\n", encoding="utf-8")
+    shard.with_name(shard.name + suffixes[1]).write_text(
+        _node(B, "bob").to_jsonl() + "\n", encoding="utf-8"
+    )
     assert not shard.exists()
 
     fresh = GraphStore.open(g.root, data_dir=tmp_path / "data-fresh")
@@ -79,7 +83,9 @@ def test_bisync_renamed_tombstones_still_apply(tmp_path: Path) -> None:
     g.put_node(_node(A, "alice", "2026-08-25T12:00:00.000000Z"))
     g.put_node(_node(B, "bob", "2026-08-25T12:00:00.000000Z"))
     tomb = Tombstone(id=A, kind="node", updated_at="2026-08-25T13:00:00.000000Z")
-    (g.paths.meta_dir / "deleted.jsonl.conflict1").write_text(tomb.to_jsonl() + "\n", encoding="utf-8")
+    (g.paths.meta_dir / "deleted.jsonl.conflict1").write_text(
+        tomb.to_jsonl() + "\n", encoding="utf-8"
+    )
     fresh = GraphStore.open(g.root, data_dir=tmp_path / "data-fresh")
     assert fresh.get_node(A) is None
     assert {n.props["name"] for n in fresh.iter_nodes()} == {"bob"}
@@ -90,7 +96,11 @@ def test_suffixed_edge_shard_and_cypher(tmp_path: Path) -> None:
     g.put_node(_node(A, "alice"))
     g.put_node(_node(B, "bob"))
     e_id = "00000000-0000-4000-8000-0000000000e1"
-    g.put_edge(EdgeRecord(id=e_id, updated_at=format_timestamp(), type="KNOWS", from_id=A, to_id=B, props={}))
+    g.put_edge(
+        EdgeRecord(
+            id=e_id, updated_at=format_timestamp(), type="KNOWS", from_id=A, to_id=B, props={}
+        )
+    )
     shard = g.paths.edge_shard(e_id)
     os.replace(shard, shard.with_name(shard.name + ".conflict2"))
     fresh = GraphStore.open(g.root, data_dir=tmp_path / "data-fresh")
@@ -105,7 +115,9 @@ def test_running_store_notices_a_new_suffixed_copy(tmp_path: Path) -> None:
     assert len(g.execute("MATCH (n:Entity) RETURN n.name AS name")) == 1
     # The sync client drops a conflict copy next to the shard while the store is open.
     shard = g.paths.node_shard(B)
-    shard.with_name(shard.name + ".conflict1").write_text(_node(B, "bob").to_jsonl() + "\n", encoding="utf-8")
+    shard.with_name(shard.name + ".conflict1").write_text(
+        _node(B, "bob").to_jsonl() + "\n", encoding="utf-8"
+    )
     names = {r["name"] for r in g.execute("MATCH (n:Entity) RETURN n.name AS name")}
     assert names == {"alice", "bob"}
 
@@ -114,6 +126,8 @@ def test_partial_transfer_file_is_ignored(tmp_path: Path) -> None:
     g = _open(tmp_path)
     g.put_node(_node(A, "alice"))
     shard = g.paths.node_shard(A)
-    shard.with_name(shard.name + ".1f5c946a.partial").write_text(_node(B, "bob").to_jsonl() + "\n", encoding="utf-8")
+    shard.with_name(shard.name + ".1f5c946a.partial").write_text(
+        _node(B, "bob").to_jsonl() + "\n", encoding="utf-8"
+    )
     fresh = GraphStore.open(g.root, data_dir=tmp_path / "data-fresh")
     assert {n.props["name"] for n in fresh.iter_nodes()} == {"alice"}

@@ -44,9 +44,7 @@ def main(argv: list[str] | None = None) -> int:
         description="Local property-graph storage. Open a folder and query it in-process; no database server for the default path.",
         epilog="The graphted-db command is the same entry point.",
     )
-    parser.add_argument(
-        "--version", action="version", version=f"%(prog)s {__version__}"
-    )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
 
     init_p = sub.add_parser("init", help="create an empty graph folder")
@@ -122,7 +120,9 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
 
-    cypher_p = sub.add_parser("cypher", help="run an openCypher query (supported subset; see docs/cypher.md)")
+    cypher_p = sub.add_parser(
+        "cypher", help="run an openCypher query (supported subset; see docs/cypher.md)"
+    )
     cypher_p.add_argument("path", type=Path)
     cypher_p.add_argument("query", nargs="?", default=None, help="query; omit to read stdin")
     cypher_p.add_argument(
@@ -153,7 +153,14 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         return _dispatch(args)
-    except (OSError, GraphFormatError, FileExistsError, ValueError, CypherError, json.JSONDecodeError) as exc:
+    except (
+        OSError,
+        GraphFormatError,
+        FileExistsError,
+        ValueError,
+        CypherError,
+        json.JSONDecodeError,
+    ) as exc:
         print(f"graph-ted-db: {exc}", file=sys.stderr)
         return 1
 

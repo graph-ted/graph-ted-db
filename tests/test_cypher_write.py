@@ -33,10 +33,7 @@ def test_execute_many_commits_all(tmp_path: Path):
             ),
         ]
     )
-    names = {
-        row["name"]
-        for row in g.execute("MATCH (n:Entity) RETURN n.name AS name")
-    }
+    names = {row["name"] for row in g.execute("MATCH (n:Entity) RETURN n.name AS name")}
     assert names == {"One", "Two"}
 
 
@@ -198,10 +195,7 @@ def test_unwind_merge_bulk(tmp_path: Path):
         "00000000-0000-4000-8000-0000000000d1",
         "00000000-0000-4000-8000-0000000000d2",
     }
-    names = {
-        r["name"]
-        for r in g.execute("MATCH (n:Entity) RETURN n.name AS name")
-    }
+    names = {r["name"] for r in g.execute("MATCH (n:Entity) RETURN n.name AS name")}
     assert names == {"A", "B"}
 
 

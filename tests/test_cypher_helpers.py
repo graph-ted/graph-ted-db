@@ -14,11 +14,7 @@ from graph_ted_db.store import GraphStore, init_graph
 #   <parent>/graph-ted/backend/cypher/helpers/
 # Override with env HELPER_DIR (absolute or relative path).
 _DEFAULT_HELPER_DIR = (
-    Path(__file__).resolve().parents[2]
-    / "graph-ted"
-    / "backend"
-    / "cypher"
-    / "helpers"
+    Path(__file__).resolve().parents[2] / "graph-ted" / "backend" / "cypher" / "helpers"
 )
 HELPER_DIR = Path(os.environ.get("HELPER_DIR", str(_DEFAULT_HELPER_DIR))).expanduser().resolve()
 
@@ -133,9 +129,7 @@ def test_list_default_group_entities_hides_forms(tmp_path: Path):
 
 def test_get_entity_related(tmp_path: Path):
     g = _seed(tmp_path)
-    rows = g.execute(
-        _helper("get_entity_related_entities"), {"uuid": ALICE, "group_id": "default"}
-    )
+    rows = g.execute(_helper("get_entity_related_entities"), {"uuid": ALICE, "group_id": "default"})
     by_name = {r["name"]: r for r in rows}
     assert "Field process" in by_name
     assert by_name["Field process"]["edge_name"] == "HAS_FORM"
@@ -144,9 +138,7 @@ def test_get_entity_related(tmp_path: Path):
 
 def test_get_entity_questions_and_forms(tmp_path: Path):
     g = _seed(tmp_path)
-    questions = g.execute(
-        _helper("get_entity_questions"), {"uuid": ALICE, "group_id": "default"}
-    )
+    questions = g.execute(_helper("get_entity_questions"), {"uuid": ALICE, "group_id": "default"})
     assert [q["name"] for q in questions] == ["Budget?"]
     forms = g.execute(_helper("get_entity_forms"), {"uuid": ALICE, "group_id": "default"})
     assert [f["name"] for f in forms] == ["Field process"]
@@ -209,9 +201,7 @@ def test_get_episode_linked_episodes(tmp_path: Path):
         ep2,
         ALICE,
     )
-    rows = g.execute(
-        _helper("get_episode_linked_episodes"), {"uuid": EP, "group_id": "default"}
-    )
+    rows = g.execute(_helper("get_episode_linked_episodes"), {"uuid": EP, "group_id": "default"})
     assert [r["uuid"] for r in rows] == [ep2]
     assert ALICE in rows[0]["mentioned_entity_uuids"]
 

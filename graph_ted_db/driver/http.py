@@ -117,9 +117,7 @@ def post_cypher_many(
     if not statements:
         return []
     payload: dict[str, Any] = {
-        "statements": [
-            {"query": query, "parameters": params} for query, params in statements
-        ]
+        "statements": [{"query": query, "parameters": params} for query, params in statements]
     }
     if max_records is not None:
         payload["max_records"] = max_records

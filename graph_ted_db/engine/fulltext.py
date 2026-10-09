@@ -49,7 +49,8 @@ def _field_blob(props: dict[str, Any], fields: tuple[str, ...]) -> str:
 
 def query_nodes(index, index_name: str, query: str, limit: int | None) -> list[dict]:
     labels, fields = NODE_INDEX_FIELDS.get(
-        index_name, (("Entity", "Episodic", "Community"), ("name", "summary", "content", "group_id"))
+        index_name,
+        (("Entity", "Episodic", "Community"), ("name", "summary", "content", "group_id")),
     )
     query_tokens = tokens(query)
     scored: list[tuple[float, Any]] = []
@@ -80,6 +81,4 @@ def query_relationships(index, index_name: str, query: str, limit: int | None) -
     scored.sort(key=lambda item: item[0], reverse=True)
     if limit is not None:
         scored = scored[: max(0, int(limit))]
-    return [
-        {"relationship": view, "node": view, "score": value} for value, view in scored
-    ]
+    return [{"relationship": view, "node": view, "score": value} for value, view in scored]

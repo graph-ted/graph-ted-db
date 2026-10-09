@@ -30,11 +30,21 @@ def _writer_store(tmp_path: Path) -> Path:
     init_graph(root, name="shared")
     g = GraphStore.open(root, data_dir=tmp_path / "writer-data")
     for i in range(N):
-        g.put_node(NodeRecord(id=_node_id(i), updated_at=format_timestamp(), labels=("Entity",), props={"i": i}))
+        g.put_node(
+            NodeRecord(
+                id=_node_id(i), updated_at=format_timestamp(), labels=("Entity",), props={"i": i}
+            )
+        )
     for i in range(N):
         g.put_edge(
-            EdgeRecord(id=_edge_id(i), updated_at=format_timestamp(), type="RELATES_TO",
-                       from_id=_node_id(i), to_id=_node_id((i + 1) % N), props={})
+            EdgeRecord(
+                id=_edge_id(i),
+                updated_at=format_timestamp(),
+                type="RELATES_TO",
+                from_id=_node_id(i),
+                to_id=_node_id((i + 1) % N),
+                props={},
+            )
         )
     return root
 
@@ -55,14 +65,22 @@ def _finish_sync(src: Path, dst: Path) -> None:
 def test_default_doctor_on_half_synced_copy_deletes_nothing(tmp_path: Path) -> None:
     src = _writer_store(tmp_path)
     copy = _half_synced_copy(src, tmp_path / "reader")
-    deleted_before = (copy / "meta" / "deleted.jsonl").read_bytes() if (copy / "meta" / "deleted.jsonl").exists() else b""
+    deleted_before = (
+        (copy / "meta" / "deleted.jsonl").read_bytes()
+        if (copy / "meta" / "deleted.jsonl").exists()
+        else b""
+    )
 
     g = GraphStore.open(copy, data_dir=tmp_path / "reader-data")
     report = g.doctor()
     assert len(report.dangling_edges_found) == N
     assert report.dangling_edges_tombstoned == []
     assert report.fix is False
-    deleted_after = (copy / "meta" / "deleted.jsonl").read_bytes() if (copy / "meta" / "deleted.jsonl").exists() else b""
+    deleted_after = (
+        (copy / "meta" / "deleted.jsonl").read_bytes()
+        if (copy / "meta" / "deleted.jsonl").exists()
+        else b""
+    )
     assert deleted_after == deleted_before
 
     _finish_sync(src, copy)

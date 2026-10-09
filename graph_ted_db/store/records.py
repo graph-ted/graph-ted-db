@@ -91,8 +91,7 @@ class GraphMeta:
             raise ValueError(f"invalid format_version: {version!r}")
         if version > FORMAT_VERSION:
             raise ValueError(
-                f"graph format_version {version} is newer than this library "
-                f"({FORMAT_VERSION})"
+                f"graph format_version {version} is newer than this library ({FORMAT_VERSION})"
             )
         fanout = data.get("shard_fanout", SHARD_FANOUT)
         if fanout != SHARD_FANOUT:
@@ -215,9 +214,7 @@ class VectorRecord:
         raw = base64.b64decode(self.vec_b64, validate=True)
         expected = self.dim * 4
         if len(raw) != expected:
-            raise ValueError(
-                f"vector {self.id} decoded to {len(raw)} bytes, expected {expected}"
-            )
+            raise ValueError(f"vector {self.id} decoded to {len(raw)} bytes, expected {expected}")
         return struct.unpack(f"<{self.dim}f", raw)
 
     @classmethod
@@ -233,11 +230,7 @@ class VectorRecord:
     ) -> VectorRecord:
         dim = len(values)
         raw = struct.pack(f"<{dim}f", *values)
-        ts = (
-            updated_at
-            if isinstance(updated_at, str)
-            else format_timestamp(updated_at)
-        )
+        ts = updated_at if isinstance(updated_at, str) else format_timestamp(updated_at)
         return cls(
             id=normalize_uuid(id),
             updated_at=format_timestamp(parse_timestamp(ts)),
@@ -267,9 +260,7 @@ class VectorRecord:
         except Exception as exc:
             raise ValueError("vec is not valid base64") from exc
         if len(raw) != dim * 4:
-            raise ValueError(
-                f"vec length {len(raw)} does not match dim {dim} (expected {dim * 4})"
-            )
+            raise ValueError(f"vec length {len(raw)} does not match dim {dim} (expected {dim * 4})")
         return cls(
             id=normalize_uuid(_require_str(data, "id")),
             v=_record_version(data),

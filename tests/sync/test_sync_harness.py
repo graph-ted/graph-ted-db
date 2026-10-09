@@ -24,7 +24,9 @@ pytestmark = pytest.mark.skipif(
 
 
 def _harness():
-    spec = importlib.util.spec_from_file_location("sync_harness", ROOT / "scripts" / "sync_test" / "sync_harness.py")
+    spec = importlib.util.spec_from_file_location(
+        "sync_harness", ROOT / "scripts" / "sync_test" / "sync_harness.py"
+    )
     mod = importlib.util.module_from_spec(spec)
     sys.modules["sync_harness"] = mod
     assert spec.loader is not None
