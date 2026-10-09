@@ -111,3 +111,48 @@ def test_serve_off_loopback_passes_token(tmp_path: Path, capsys, monkeypatch):
     monkeypatch.setenv("GRAPH_TED_DB_TOKEN", "from-env")
     assert main(["serve", str(root), "--host", "0.0.0.0"]) == 0
     assert called["token"] == "from-env"
+
+
+def test_cli_updated_by_is_opt_in(tmp_path: Path, capsys, monkeypatch):
+    """Never the OS login name: empty unless --by or GRAPH_TED_DB_UPDATED_BY is set."""
+    import getpass
+
+    monkeypatch.setenv("GRAPH_TED_DB_DATA", str(tmp_path / "data"))
+    monkeypatch.delenv("GRAPH_TED_DB_UPDATED_BY", raising=False)
+    monkeypatch.setattr(getpass, "getuser", lambda: "os-login-name")
+    root = tmp_path / "graph"
+    assert main(["init", str(root), "--name", "cli"]) == 0
+    capsys.readouterr()
+
+    assert main(["put-node", str(root), "--label", "A"]) == 0
+    assert json.loads(capsys.readouterr().out)["updated_by"] == ""
+
+    monkeypatch.setenv("GRAPH_TED_DB_UPDATED_BY", "from-env")
+    assert main(["put-node", str(root), "--label", "A"]) == 0
+    node = json.loads(capsys.readouterr().out)
+    assert node["updated_by"] == "from-env"
+
+    assert main(["put-node", str(root), "--label", "A", "--updated-by", "from-flag"]) == 0
+    assert json.loads(capsys.readouterr().out)["updated_by"] == "from-flag"
+
+    assert main(["delete-node", str(root), node["id"]]) == 0
+    assert json.loads(capsys.readouterr().out)["updated_by"] == "from-env"
+
+    assert main(["cypher", str(root), "CREATE (n:B) RETURN n.x AS x", "--by", "q"]) == 0
+    capsys.readouterr()
+    assert main(["ls-nodes", str(root)]) == 0
+    rows = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert "os-login-name" not in {r["updated_by"] for r in rows}
+    assert "q" in {r["updated_by"] for r in rows if r["labels"] == ["B"]}
+
+
+def test_cli_cypher_query_after_options(tmp_path: Path, capsys, monkeypatch):
+    """The docs put --params before the query; that must work on every Python."""
+    monkeypatch.setenv("GRAPH_TED_DB_DATA", str(tmp_path / "data"))
+    root = tmp_path / "graph"
+    assert main(["init", str(root), "--name", "cli"]) == 0
+    assert main(["put-node", str(root), "--label", "Entity", "--prop", "name=Alice"]) == 0
+    capsys.readouterr()
+    query = "MATCH (n:Entity) WHERE n.name = $n RETURN n.name AS name"
+    assert main(["cypher", str(root), "--params", '{"n": "Alice"}', query]) == 0
+    assert json.loads(capsys.readouterr().out) == {"name": "Alice"}

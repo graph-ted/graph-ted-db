@@ -18,8 +18,8 @@ A client stores `http://127.0.0.1:8099` as its connection URL.
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/health` or `/` | Liveness + graph id/name. Use it (or `RETURN 1 AS ok`) as a connection test. |
-| `GET` | `/info` | `graph.json` fields plus live node/edge counts |
+| `GET` | `/health` or `/` | Liveness: `ok`, format, graph `id` and `name`, node/edge counts. No folder path, since it needs no token. Use it (or `RETURN 1 AS ok`) as a connection test. |
+| `GET` | `/info` | `graph.json` fields, the folder path (`root`), and live node/edge counts |
 | `POST` | `/cypher` | One query (`query`) or an atomic batch (`statements`). Writes allowed. |
 | `GET` | `/cypher?query=…` | Read convenience for curl. Mutating queries return `405`. `params` is a JSON object string |
 

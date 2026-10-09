@@ -47,7 +47,9 @@ def test_health_and_info(tmp_path: Path):
         assert body["ok"] is True
         assert body["name"] == "http"
         assert body["nodes"] == 1
-        assert Path(body["root"]) == g.root
+        # /health is open even when a token is set: no local folder path in it.
+        assert "root" not in body
+        assert set(body) == {"ok", "format", "format_version", "id", "name", "nodes", "edges"}
         conn.request("GET", "/info")
         info = json.loads(conn.getresponse().read())
         assert info["nodes"] == 1

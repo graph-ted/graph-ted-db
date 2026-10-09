@@ -46,6 +46,8 @@ graph-ted-db info ./my-graph
 
 `graphted-db` is an alias for the same CLI.
 
+Records carry an optional `updated_by` author string. It is empty unless you set it: pass `--by NAME` to a write command, or set `GRAPH_TED_DB_UPDATED_BY` for every CLI write. In Python, pass `updated_by=` to `make_node`, `make_edge`, and the delete methods. graph-ted-db never fills it in from your OS account, because records travel with the folder when you sync or share it.
+
 ## Run openCypher queries
 
 ```python
