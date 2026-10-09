@@ -2,11 +2,11 @@
 
 Power queries on a graph-ted-db folder. Everyday open / put / get is the Python store API in [Getting started](getting-started.md). graph-ted-db also runs a **documented subset of openCypher**, so graph-ted helper queries and the Graphiti driver can run against a folder. It is not a complete openCypher implementation.
 
-Unsupported syntax raises `CypherError` with a source position. Prefer adding to this engine over rewriting queries in graph-ted.
+Unsupported syntax raises `CypherError` with a source position.
 
 ## Expand the language
 
-Do **not** special-case individual helper files. Extend the engine:
+For contributors. Do **not** special-case individual queries. Extend the engine:
 
 | Add… | Where |
 |---|---|
@@ -20,7 +20,7 @@ Indexes (`graph_ted_db.index.LocalIndex`) sit under `GRAPH_TED_DB_DATA/<graph-id
 
 ## Supported today
 
-Aimed at `graph-ted/backend/cypher/helpers/*.cypher`.
+Aimed at the queries the graph-ted app and the Graphiti driver send.
 
 **Clauses:** `MATCH`, `OPTIONAL MATCH`, `WHERE`, `WITH` `[DISTINCT]` `ORDER BY` `SKIP` `LIMIT`, `UNWIND`, `RETURN` `[DISTINCT]` `ORDER BY` `SKIP` `LIMIT`, `UNION` / `UNION ALL`, `DELETE`, `DETACH DELETE`, `CREATE`, `MERGE`, `SET` (property, `+=`, `=`, labels, `n:$(expr)`), `CALL db.create.setNodeVectorProperty` / `setRelationshipVectorProperty`, `CALL db.index.fulltext.queryNodes` / `queryRelationships` `YIELD`. `CREATE INDEX` / `CREATE FULLTEXT INDEX` / `DROP` / `SHOW` are accepted no-ops.
 
@@ -47,6 +47,12 @@ Aimed at `graph-ted/backend/cypher/helpers/*.cypher`.
 ## API
 
 ```python
+from graph_ted_db import GraphStore, init_graph
+
+init_graph("./my-graph", name="demo", exist_ok=True)
+store = GraphStore.open("./my-graph")
+store.make_node(labels=["Entity"], props={"name": "Alice", "group_id": "default"})
+
 rows = store.execute(
     "MATCH (n:Entity {group_id: $group_id}) RETURN n.name AS name",
     {"group_id": "default"},
