@@ -138,7 +138,7 @@ def test_cli_updated_by_is_opt_in(tmp_path: Path, capsys, monkeypatch):
     assert main(["delete-node", str(root), node["id"]]) == 0
     assert json.loads(capsys.readouterr().out)["updated_by"] == "from-env"
 
-    assert main(["cypher", str(root), "--by", "q", "CREATE (n:B) RETURN n.x AS x"]) == 0
+    assert main(["cypher", str(root), "CREATE (n:B) RETURN n.x AS x", "--by", "q"]) == 0
     capsys.readouterr()
     assert main(["ls-nodes", str(root)]) == 0
     rows = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
