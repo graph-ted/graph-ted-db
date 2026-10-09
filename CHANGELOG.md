@@ -27,8 +27,9 @@ First public release.
   `get_*`, `iter_nodes` / `iter_edges`, `delete_*` (tombstones).
 - Per-record last-write-wins, and reading of sync-tool conflict copies
   (OneDrive- and Dropbox-style names, rclone bisync `.conflictN` / `..pathN`)
-  so a graph folder can be shared through a file-sync service, one writer at
-  a time.
+  so a graph folder can be shared through a file-sync service. Multiple
+  devices can add and edit at the same time; concurrent edits to the same
+  record resolve to the latest version.
 - On-disk format version 2 (`docs/format.md`): each writer appends only to
   its own files (`<shard>.<writer>.jsonl`, `meta/deleted.<writer>.jsonl`),
   with a random writer id kept in local app data and a registration file in
