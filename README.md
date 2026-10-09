@@ -1,6 +1,8 @@
 <p align="center">
-  <img src="docs/assets/logo-readme.png" alt="graph-ted-db" width="340" height="116">
+  <img src="https://graph-ted.com/graph-ted-db/docs/assets/logo-readme.png" alt="graph-ted-db" width="340" height="116">
 </p>
+
+<!-- Images and links use absolute URLs so they render on PyPI. The logo is served by the docs site. -->
 
 # graph-ted-db
 
@@ -45,7 +47,7 @@ graph-ted-db ls-nodes ./my-graph
 
 `graphted-db` is an alias for the same command.
 
-Optional HTTP (localhost only by default; see [docs/http.md](docs/http.md)):
+Optional HTTP (localhost only by default; see [HTTP docs](https://graph-ted.com/graph-ted-db/docs/http/)):
 
 ```bash
 graph-ted-db serve ./my-graph
@@ -59,8 +61,8 @@ curl -s http://127.0.0.1:8099/cypher -H 'Content-Type: application/json' \
 
 - **Folder = database** — nodes, edges, and embeddings as sharded JSONL; readable, backupable, syncable
 - **In-process API** — `put` / `get` / `iter` / `delete` without opening a network port
-- **openCypher queries** — `g.execute(...)` runs a documented subset of openCypher for graph-pattern queries ([docs/cypher.md](docs/cypher.md))
-- **Optional HTTP** — localhost endpoint for openCypher queries when another process needs the store ([docs/http.md](docs/http.md))
+- **openCypher queries** — `g.execute(...)` runs a documented subset of openCypher for graph-pattern queries ([openCypher subset](https://graph-ted.com/graph-ted-db/docs/cypher/))
+- **Optional HTTP** — localhost endpoint for openCypher queries when another process needs the store ([HTTP docs](https://graph-ted.com/graph-ted-db/docs/http/))
 - **Sync-friendly** — last-write-wins per record; conflict-copy shards merged on read
 - **NetworkX-style helpers** — `add_node`, `add_edge`, `neighbors`, and related methods on the same `GraphStore` (no algorithm suite)
 
@@ -82,19 +84,19 @@ Choose storage and network to match how sensitive the data is.
 
 ## Documentation
 
-The docs site is the MkDocs tree in this repository ([`docs/index.md`](docs/index.md)). Preview locally: see [PREVIEW.md](PREVIEW.md).
+Docs: [graph-ted.com/graph-ted-db/docs](https://graph-ted.com/graph-ted-db/docs/), built from the `docs/` folder in this repository. Preview locally: see [PREVIEW.md](https://github.com/graph-ted/graph-ted-db/blob/main/PREVIEW.md).
 
 | Doc | Contents |
 |-----|----------|
-| [docs/overview.md](docs/overview.md) | Product overview |
-| [docs/format.md](docs/format.md) | On-disk layout |
-| [docs/cypher.md](docs/cypher.md) | Supported openCypher subset |
-| [docs/trademarks.md](docs/trademarks.md) | Trademarks |
-| [docs/http.md](docs/http.md) | Local HTTP serve |
+| [Overview](https://graph-ted.com/graph-ted-db/docs/overview/) | Product overview |
+| [On-disk format](https://graph-ted.com/graph-ted-db/docs/format/) | On-disk layout |
+| [openCypher subset](https://graph-ted.com/graph-ted-db/docs/cypher/) | Supported openCypher subset |
+| [Trademarks](https://graph-ted.com/graph-ted-db/docs/trademarks/) | Trademarks |
+| [HTTP](https://graph-ted.com/graph-ted-db/docs/http/) | Local HTTP serve |
 
 ## Trademarks
 
-openCypher is a trademark of Neo4j, Inc. Other names are trademarks of their respective owners; no endorsement implied. See [docs/trademarks.md](docs/trademarks.md).
+openCypher is a trademark of Neo4j, Inc. Other names are trademarks of their respective owners; no endorsement implied. See [Trademarks](https://graph-ted.com/graph-ted-db/docs/trademarks/).
 
 ## Versioning
 
@@ -111,9 +113,9 @@ pytest
 
 - **Bugs, enhancement requests, docs problems:** [open an issue](https://github.com/graph-ted/graph-ted-db/issues/new/choose) using one of the forms.
 - **Questions and ideas:** [Discussions](https://github.com/graph-ted/graph-ted-db/discussions).
-- **Security vulnerabilities:** report privately as described in [SECURITY.md](SECURITY.md), never in a public issue.
+- **Security vulnerabilities:** report privately as described in [SECURITY.md](https://github.com/graph-ted/graph-ted-db/blob/main/SECURITY.md), never in a public issue.
 
-Contributing: see [CONTRIBUTING.md](CONTRIBUTING.md).
+Contributing: see [CONTRIBUTING.md](https://github.com/graph-ted/graph-ted-db/blob/main/CONTRIBUTING.md).
 
 ## Related
 
