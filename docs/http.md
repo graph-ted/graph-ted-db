@@ -1,8 +1,8 @@
 # HTTP daemon
 
-Optional. Everyday open / put / get is the in-process Python API in [Getting started](getting-started.md) (`GraphStore.open`, `make_node`, `get_node`). This daemon is localhost JSON over HTTP so graph-ted (and anything else) can run Cypher without importing `graph_ted_db`. One process owns the graph folder and the process lock. This is not Bolt and not a hosted multi-tenant server.
+Optional. Everyday open / put / get is the in-process Python API in [Getting started](getting-started.md) (`GraphStore.open`, `make_node`, `get_node`). This daemon is localhost JSON over HTTP so graph-ted (and anything else) can run openCypher queries without importing `graph_ted_db`. One process owns the graph folder and the process lock. It is plain JSON over HTTP, not a hosted multi-tenant server.
 
-Default bind: `127.0.0.1:8099` (not 7474/7687, so it can sit next to Neo4j on the same machine).
+Default bind: `127.0.0.1:8099` (not 7474/7687, so it can run next to another graph database on the same machine).
 
 First-time clone: run `setup.bat` (Windows) or `./setup.sh` (macOS/Linux), then `serve.bat` / `./serve.sh`. Or:
 
@@ -12,7 +12,7 @@ graph-ted-db put-node ./my-graph --label Entity --prop name=Alice --prop group_i
 graph-ted-db serve ./my-graph
 ```
 
-Later, graph-ted Setup can store `http://127.0.0.1:8099` (or `graph-ted://` + this daemon) the way it stores `bolt://…` today.
+A client stores `http://127.0.0.1:8099` as its connection URL.
 
 ## Endpoints
 
@@ -48,7 +48,7 @@ Response:
 }
 ```
 
-Results are truncated after 500 rows (`--max-records`). Send `"max_records": 0` to raise the cap (hard max 100000). Cypher errors are `400` with `{"error": "…", "type": "cypher"}`.
+Results are truncated after 500 rows (`--max-records`). Send `"max_records": 0` to raise the cap (hard max 100000). Query errors are `400` with `{"error": "…", "type": "cypher"}`.
 
 ### Atomic batch (`statements`)
 
@@ -84,16 +84,16 @@ curl -s http://127.0.0.1:8099/cypher \
   -d '{"query":"RETURN 1 AS ok"}'
 ```
 
-## What you can test before the Graphiti driver
+## What you can test without an application
 
-You do **not** need graph-ted or Graphiti wired yet. Against a folder:
+You do **not** need graph-ted or any other application. Against a folder:
 
 1. **CLI CRUD** — `put-node` / `ls-nodes` / `put-edge` / `delete-node` / `doctor`
-2. **CLI Cypher** — `graph-ted-db cypher ./my-graph 'MATCH (n) RETURN n.name AS name'`
+2. **CLI queries** — `graph-ted-db cypher ./my-graph 'MATCH (n) RETURN n.name AS name'`
 3. **This daemon** — `serve` + the curls above
 4. **graph-ted helpers** — copy a file from `graph-ted/backend/cypher/helpers/` and POST it with `$uuid` / `$group_id` / `$uuids` / `$focus_uuid`
 
-Writes through Cypher include `CREATE` / `MERGE` / `SET` / `DELETE` / `DETACH DELETE` (POST only). Graphiti MCP should talk to this daemon (`GraphTedDbDriver` with an `http://` URL). Opening `GraphStore` in-process remains available for library and CLI use.
+Writes through openCypher queries include `CREATE` / `MERGE` / `SET` / `DELETE` / `DETACH DELETE` (POST only). Graphiti MCP should talk to this daemon (`GraphTedDbDriver` with an `http://` URL). Opening `GraphStore` in-process remains available for library and CLI use.
 
 `put-node` / `put-edge` from another terminal (a second process) are visible on the **next** `/cypher` request. The daemon reloads its catalog when shard files change; you do not need to restart `serve`.
 
@@ -154,12 +154,11 @@ networkingMode=mirrored
 
 Restart WSL (`wsl --shutdown`) after changing that. If a WSL `serve` is also running, curl will hit WSL again.
 
-## URI notes (for a later graph-ted Setup field)
+## URI notes
 
 | Scheme | Meaning |
 |---|---|
 | `http://127.0.0.1:8099` | This daemon (what graph-ted should HTTP POST to) |
 | `graph-ted:///abs/path/to/folder` | The graph folder; a client still has to run or reach a daemon (or use the Python library) |
-| `bolt://…` | Neo4j (unchanged) |
 
 Product code should not import `GraphStore`. The daemon is the black-box seam.

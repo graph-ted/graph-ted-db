@@ -16,7 +16,7 @@ Your graph lives in a folder on disk. Open it from your process, read and write 
 
 - A **folder as the database** — plain files you can back up and sync
 - An **in-process Python API** — no server for the default path
-- An optional **Cypher subset** for pattern queries
+- Optional **openCypher queries** (a documented subset) for pattern matching
 - Optional **localhost HTTP** when another process needs the store
 
 ## Install
@@ -46,7 +46,7 @@ print(g.get_node(alice.id).props["name"])
 
 Prototypes, local tools, and small trusted groups that want a property graph beside the app.
 
-Prefer a server graph database when you need multi-tenant hosting, rich remote authorization, or a full enterprise Cypher surface on day one.
+Prefer a server graph database when you need multi-tenant hosting, rich remote authorization, or a complete query language and enterprise features on day one.
 
 ## Security in one line
 

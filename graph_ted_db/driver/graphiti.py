@@ -1,6 +1,6 @@
 """graphiti-core GraphDriver over a graph-ted-db folder or HTTP serve.
 
-Reports GraphProvider.NEO4J so Graphiti uses its Neo4j Cypher dialect.
+Reports GraphProvider.NEO4J so Graphiti emits the query dialect this engine's openCypher subset targets.
 Pass an http(s) URL to use serve (one process owns the folder). Pass a
 filesystem path to open GraphStore in-process (library / CLI use).
 Install graphiti-core in the process that constructs this driver.
@@ -96,7 +96,7 @@ class GraphTedDbSession(GraphDriverSession):
         return None
 
     async def _execute_store(self, query: str, params: dict[str, Any]) -> list:
-        """Run Cypher off the event loop, unless this thread already holds the store lock.
+        """Run queries off the event loop, unless this thread already holds the store lock.
 
         ``execute_write`` keeps the file lock on the loop thread and calls
         ``run`` from there. Moving that call to a worker would see the lock

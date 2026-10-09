@@ -46,13 +46,13 @@ graph-ted-db info ./my-graph
 
 `graphted-db` is an alias for the same CLI.
 
-## Query with Cypher
+## Run openCypher queries
 
 ```python
 print(g.execute("MATCH (n) RETURN n.name AS name"))
 ```
 
-See [Cypher](cypher.md).
+See [openCypher subset](cypher.md).
 
 ## Optional HTTP
 

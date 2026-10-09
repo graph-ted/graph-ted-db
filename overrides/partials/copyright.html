@@ -1,0 +1,18 @@
+{#- Footer: config.copyright (feedback links), then the trademark line. Links use base_url so they work at any site path. -#}
+<div class="md-copyright">
+  {% if config.copyright %}
+    <div class="md-copyright__highlight">
+      {{ config.copyright }}
+    </div>
+  {% endif %}
+  <div class="md-copyright__trademarks">
+    openCypher is a trademark of Neo4j, Inc. Other names are trademarks of their respective owners; no endorsement implied.
+    <a href="{{ base_url }}/trademarks/">Trademarks</a>
+  </div>
+  {% if not config.extra.generator == false %}
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  {% endif %}
+</div>

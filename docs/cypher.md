@@ -1,6 +1,6 @@
-# Cypher subset
+# openCypher subset
 
-Power queries on a graph-ted-db folder. Everyday open / put / get is the Python store API in [Getting started](getting-started.md). graph-ted-db also speaks a **documented subset** of Cypher so graph-ted helpers (and Graphiti’s Neo4j dialect, later) can run against a folder. This is not openCypher and not Neo4j.
+Power queries on a graph-ted-db folder. Everyday open / put / get is the Python store API in [Getting started](getting-started.md). graph-ted-db also runs a **documented subset of openCypher**, so graph-ted helper queries and the Graphiti driver can run against a folder. It is not a complete openCypher implementation.
 
 Unsupported syntax raises `CypherError` with a source position. Prefer adding to this engine over rewriting queries in graph-ted.
 
@@ -30,11 +30,11 @@ Aimed at `graph-ted/backend/cypher/helpers/*.cypher`.
 
 **Functions:** `labels`, `type`, `properties`, `elementId` (also `id`), `coalesce`, `size`, `toString`, `toLower`, `toUpper`, `collect` `[DISTINCT]`, `max`, `min`, `count` `[DISTINCT]`, `vector.similarity.cosine`.
 
-**Not yet:** `FOREACH`, subqueries, `SHORTESTPATH`, Lucene-grade BM25 (fulltext is substring token overlap), `IN TRANSACTIONS`. `elementId` is the record UUID. Nested objects in `props` are stored but not walked by `.` beyond one map.
+**Not yet:** `FOREACH`, subqueries, `SHORTESTPATH`, ranked BM25 fulltext (fulltext is substring token overlap), `IN TRANSACTIONS`. `elementId` is the record UUID. Nested objects in `props` are stored but not walked by `.` beyond one map.
 
 ## Node and relationship mapping
 
-| Cypher | graph-ted-db |
+| openCypher | graph-ted-db |
 |---|---|
 | Node labels | `NodeRecord.labels` |
 | `n.uuid` | `props.uuid` if set, else record `id` |

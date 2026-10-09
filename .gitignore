@@ -14,7 +14,7 @@ htmlcov/
 .mypy_cache/
 .ruff_cache/
 
-# Local OneDrive (or other) mount used for sync testing. Not part of the repo.
+# Local sync-folder mount used for sync testing. Not part of the repo.
 mnt/
 
 # Demo graph created by serve.sh / serve.bat

@@ -16,7 +16,7 @@ store = GraphStore.open("./my-graph")
 | --- | --- |
 | `GraphStore` | Open a graph folder and read or write it |
 | `init_graph` | Create an empty graph folder |
-| `CypherError` | Invalid or unsupported Cypher |
+| `CypherError` | Invalid query, or syntax outside the supported openCypher subset |
 | `__version__` | Package version string (`graph_ted_db.__version__`) |
 
 ## GraphStore

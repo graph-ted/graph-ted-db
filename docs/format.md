@@ -2,7 +2,7 @@
 
 **Format version:** 1
 
-This is the on-disk format of **graph-ted-db**, local property-graph storage for Python and the database component of the **graph-ted** kit. A sync client (OneDrive, rclone, abraunegg) may copy, delay, or fork these files. Readers must treat the folder as eventually consistent and merge by record, not by whole file.
+This is the on-disk format of **graph-ted-db**, local property-graph storage for Python and the database component of the **graph-ted** kit. A file-sync client may copy, delay, or fork these files. Readers must treat the folder as eventually consistent and merge by record, not by whole file.
 
 The graph is a folder of ordinary files. No database server is required to open it. The bytes in that folder are this format.
 
@@ -31,7 +31,7 @@ One folder is one graph.
   logs/                      # optional append-only mutation log; not required to open
 ```
 
-Do **not** pre-create all 256 shard files. Empty files still count against OneDrive's item budget. Create a shard file when the first record for that shard is written.
+Do **not** pre-create all 256 shard files. Empty files still count against a sync service's file-count limits. Create a shard file when the first record for that shard is written.
 
 ## `graph.json`
 
@@ -122,7 +122,7 @@ Path: `nodes/<shard>.jsonl`
 | `labels` | array of strings | yes (may be empty) |
 | `props` | object | yes |
 
-`props` must not contain embedding arrays. Embeddings live under `vectors/`. Property values are JSON: string, number, boolean, null, or arrays of those. Nested objects are allowed but not queried in v1 Cypher.
+`props` must not contain embedding arrays. Embeddings live under `vectors/`. Property values are JSON: string, number, boolean, null, or arrays of those. Nested objects are allowed but not queried by the v1 openCypher subset.
 
 ## Edge record
 
@@ -217,9 +217,9 @@ If Alice changes `props.name` and Bob changes `props.summary` on the same node w
 - Must not produce a live node whose `props`/`labels` were taken half from Alice and half from Bob.
 - Must not leave a **live edge whose endpoints are not live nodes**. `delete_node` tombstones incident edges (DETACH). Reads skip dangling edges. `doctor` reports any that remain; `doctor --fix` tombstones them. In a synced folder an edge can arrive before its nodes, and a tombstone is permanent on every device, so run `--fix` only after sync has finished. Compact omits dangling winners from the canonical shard.
 
-Writer clocks can skew. Graphiti episodic history is the user-visible change log; this rule only decides the materialised record.
+Writer clocks can skew. Application-level history (for example an episode log) is the user-visible change log; this rule only decides the materialised record.
 
-## OneDrive conflict copies
+## Sync-client conflict copies
 
 Sync clients fork a file when both sides edited it. Names vary; v1 treats an extra file in a shard directory as a conflict sibling of the canonical `NN.jsonl` if:
 
@@ -278,6 +278,6 @@ These must not be placed in the synced graph folder. v1 writes `catalog.jsonl`, 
 ## What this format is not
 
 - Not a single-file database.
-- Not one file per node/edge (OneDrive item budget).
+- Not one file per node/edge (sync services limit file counts).
 - Not CRDT merge of property maps. Whole-record LWW: one complete object wins; concurrent field-level edits on the same id can lose the non-winning write, they must not mix into a corrupt object.
 - Not encrypted at rest by the library. Security is as strong as your storage and network (encrypted volumes and an airgap can be very strong; synced or shared folders are not). The folder ACL / disk encryption / network exposure you choose is the security boundary — see [Security](security.md).

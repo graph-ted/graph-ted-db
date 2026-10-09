@@ -1,4 +1,4 @@
-"""HTTP Cypher client for graph-ted-db serve. No graphiti-core dependency."""
+"""HTTP query client for graph-ted-db serve. No graphiti-core dependency."""
 
 from __future__ import annotations
 

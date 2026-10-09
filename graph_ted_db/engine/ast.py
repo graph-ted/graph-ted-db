@@ -1,4 +1,4 @@
-"""AST for the Cypher subset. New clauses/expressions are new dataclasses."""
+"""AST for the openCypher subset. New clauses/expressions are new dataclasses."""
 
 from __future__ import annotations
 

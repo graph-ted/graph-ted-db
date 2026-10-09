@@ -49,8 +49,8 @@ graph-ted-db ls-nodes ./my-graph
 
 - **Folder = database** — nodes, edges, and embeddings as sharded JSONL; readable, backupable, syncable
 - **In-process API** — `put` / `get` / `iter` / `delete` without opening a network port
-- **Cypher subset** — `g.execute(...)` for graph-pattern queries ([docs/cypher.md](docs/cypher.md))
-- **Optional HTTP** — localhost Cypher endpoint when another process needs the store ([docs/http.md](docs/http.md))
+- **openCypher queries** — `g.execute(...)` runs a documented subset of openCypher for graph-pattern queries ([docs/cypher.md](docs/cypher.md))
+- **Optional HTTP** — localhost endpoint for openCypher queries when another process needs the store ([docs/http.md](docs/http.md))
 - **Sync-friendly** — last-write-wins per record; conflict-copy shards merged on read
 - **NetworkX-style helpers** — `add_node`, `add_edge`, `neighbors`, and related methods on the same `GraphStore` (no algorithm suite)
 
@@ -58,7 +58,7 @@ graph-ted-db ls-nodes ./my-graph
 
 Good fit for prototypes, local tools, agents, and small trusted groups that want a property graph next to the app.
 
-Choose a server graph database (Neo4j, etc.) when you need multi-tenant hosting, fine-grained remote auth, or a full Cypher/enterprise feature set out of the box.
+Choose a server graph database when you need multi-tenant hosting, fine-grained remote auth, or a complete query language and enterprise feature set out of the box.
 
 ## Security
 
@@ -78,8 +78,13 @@ The docs site is the MkDocs tree in this repository ([`docs/index.md`](docs/inde
 |-----|----------|
 | [docs/overview.md](docs/overview.md) | Product overview |
 | [docs/format.md](docs/format.md) | On-disk layout |
-| [docs/cypher.md](docs/cypher.md) | Supported Cypher |
+| [docs/cypher.md](docs/cypher.md) | Supported openCypher subset |
+| [docs/trademarks.md](docs/trademarks.md) | Trademarks |
 | [docs/http.md](docs/http.md) | Local HTTP serve |
+
+## Trademarks
+
+openCypher is a trademark of Neo4j, Inc. Other names are trademarks of their respective owners; no endorsement implied. See [docs/trademarks.md](docs/trademarks.md).
 
 ## Versioning
 

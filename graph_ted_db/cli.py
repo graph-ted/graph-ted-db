@@ -118,7 +118,7 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
 
-    cypher_p = sub.add_parser("cypher", help="run a Cypher subset query (see docs/cypher.md)")
+    cypher_p = sub.add_parser("cypher", help="run an openCypher query (supported subset; see docs/cypher.md)")
     cypher_p.add_argument("path", type=Path)
     cypher_p.add_argument("query", nargs="?", default=None, help="query; omit to read stdin")
     cypher_p.add_argument(
@@ -143,7 +143,7 @@ def main(argv: list[str] | None = None) -> int:
         "--max-records",
         type=int,
         default=None,
-        help="truncate Cypher results after this many rows (default 500)",
+        help="truncate query results after this many rows (default 500)",
     )
 
     args = parser.parse_args(argv)

@@ -22,8 +22,8 @@ graph-ted-db is pre-1.0. Security fixes land on `main` and go into the next rele
 graph-ted-db stores your graph as **ordinary files**, and the library does **not** encrypt the graph folder. The storage and network you choose are the security boundary. See [docs/security.md](docs/security.md) for the full guidance.
 
 - **Files on disk.** Anyone or any tool that can read the graph folder (OS accounts, sync clients, backups) can read everything in it, including property values. Use disk or volume encryption and folder permissions that match how sensitive the data is.
-- **HTTP serve is optional.** It defaults to localhost. Binding beyond loopback requires an explicit host and a token. When a token is set, every endpoint except `GET /health` requires it. The token protects the *port*, not the files on disk. Anyone who can reach the port with the token can run any Cypher the endpoint accepts, including writes.
-- **Query parameters.** Values passed as Cypher parameters (`$name`) are bound as values when the query runs. They are never spliced into the query text, so parameter values cannot change the query. Build queries with parameters rather than string formatting.
+- **HTTP serve is optional.** It defaults to localhost. Binding beyond loopback requires an explicit host and a token. When a token is set, every endpoint except `GET /health` requires it. The token protects the *port*, not the files on disk. Anyone who can reach the port with the token can run any openCypher query the endpoint accepts, including writes.
+- **Query parameters.** Values passed as query parameters (`$name`) are bound as values when the query runs. They are never spliced into the query text, so parameter values cannot change the query. Build queries with parameters rather than string formatting.
 
 ### In scope
 

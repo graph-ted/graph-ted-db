@@ -424,7 +424,7 @@ class GraphStore(_GraphStoreAliases):
         *,
         updated_by: str = "cypher",
     ) -> list[dict[str, Any]]:
-        """Run a Cypher subset query. See docs/cypher.md."""
+        """Run an openCypher query (the supported subset). See docs/cypher.md."""
         with self._lock():
             return self._execute_unlocked(
                 cypher, parameters or {}, updated_by=updated_by
@@ -642,7 +642,7 @@ class GraphStore(_GraphStoreAliases):
         return report
 
     def refresh_index(self) -> None:
-        """Reload the Cypher catalog if another process wrote shards."""
+        """Reload the query catalog if another process wrote shards."""
         with self._lock():
             self._refresh_index_unlocked()
 

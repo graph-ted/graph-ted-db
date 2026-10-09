@@ -12,6 +12,10 @@ edit_uri: ""
 exclude_docs: |
   theme/README.md
 
+# Linked from the footer (overrides/partials/copyright.html), not a nav tab.
+not_in_nav: |
+  trademarks.md
+
 theme:
   name: material
   custom_dir: overrides
@@ -26,6 +30,9 @@ theme:
   # SVG icon, plus docs/overrides/main.html adds favicon.ico for older clients.
   # 32px PNG sibling: docs/assets/favicon-32.png
   favicon: assets/favicon.svg
+  # Generic repo icon, not a third-party logo.
+  icon:
+    repo: material/source-repository
   palette:
     - scheme: default
       primary: custom
@@ -55,7 +62,7 @@ nav:
       - Quality: quality.md
       - Sharing a graph: sharing.md
       - On-disk format: format.md
-      - Cypher: cypher.md
+      - openCypher subset: cypher.md
       - HTTP: http.md
   - API reference: api.md
   - Stack: stack.md
@@ -94,15 +101,12 @@ extra_css:
   - stylesheets/extra.css
   - stylesheets/header.css
 
-# Footer: feedback link (text) plus an icon link. The repo is private until
+# Footer: feedback links (text). The repo is private until
 # launch, so these 404 for anyone without access.
 copyright: >-
   Found a problem or have feedback?
   <a href="https://github.com/graph-ted/graph-ted-db/issues/new/choose">Open an issue</a>
   or <a href="https://github.com/graph-ted/graph-ted-db/discussions">start a discussion</a>.
 
-extra:
-  social:
-    - icon: fontawesome/brands/github
-      link: https://github.com/graph-ted/graph-ted-db/issues
-      name: Issues and feedback
+# No brand icons in the footer: feedback links are text (copyright above),
+# and overrides/partials/copyright.html adds the trademark line.

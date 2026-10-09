@@ -1,4 +1,4 @@
-"""Naive fulltext over node/edge properties for Neo4j CALL db.index.fulltext.*."""
+"""Naive fulltext over node/edge properties for CALL db.index.fulltext.* procedures."""
 
 from __future__ import annotations
 

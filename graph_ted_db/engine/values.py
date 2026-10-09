@@ -1,4 +1,4 @@
-"""Runtime values for the Cypher subset: nodes, relationships, null."""
+"""Runtime values for the openCypher subset: nodes, relationships, null."""
 
 from __future__ import annotations
 

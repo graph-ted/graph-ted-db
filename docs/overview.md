@@ -15,7 +15,7 @@ graph-ted-db is a **local property-graph store** for Python applications. One di
 | Capability | Notes |
 |------------|--------|
 | Nodes / edges / vectors | Create, read, update, delete, iterate |
-| Cypher subset | `GraphStore.execute` — see [Cypher](cypher.md) |
+| openCypher queries (subset) | `GraphStore.execute` — see [openCypher subset](cypher.md) |
 | Localhost HTTP | Optional serve — see [HTTP](http.md) |
 | Sync-friendly files | Sharded JSONL, per-record last-write-wins, conflict-copy merge |
 | NetworkX-style helpers | `add_node`, `add_edge`, `neighbors`, etc. (no algorithm suite) |

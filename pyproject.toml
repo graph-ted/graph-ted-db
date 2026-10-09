@@ -10,7 +10,24 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "graph-ted-db contributors" }]
+keywords = ["graph", "property-graph", "graph-database", "opencypher", "local-first", "embedded"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Database",
+    "Topic :: Database :: Database Engines/Servers",
+]
 dependencies = []
+
+[project.urls]
+Homepage = "https://graph-ted.com/graph-ted-db/"
+Documentation = "https://graph-ted.com/graph-ted-db/docs/"
+Source = "https://github.com/graph-ted/graph-ted-db"
+Issues = "https://github.com/graph-ted/graph-ted-db/issues"
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]

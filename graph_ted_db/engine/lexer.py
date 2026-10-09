@@ -1,4 +1,4 @@
-"""Cypher subset lexer. Keywords are case-insensitive; unknown words stay IDENT."""
+"""openCypher subset lexer. Keywords are case-insensitive; unknown words stay IDENT."""
 
 from __future__ import annotations
 

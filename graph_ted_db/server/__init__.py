@@ -1,4 +1,4 @@
-"""Localhost HTTP daemon. graph-ted talks Cypher here instead of importing the store."""
+"""Localhost HTTP daemon. Clients send openCypher queries here instead of importing the store."""
 
 from graph_ted_db.server.http import (
     DEFAULT_HOST,

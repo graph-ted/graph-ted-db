@@ -1,4 +1,4 @@
-"""Cypher subset engine. Expand by registering functions and clause handlers."""
+"""openCypher subset engine. Expand by registering functions and clause handlers."""
 
 from graph_ted_db.engine.errors import CypherError
 from graph_ted_db.engine.functions import cypher_fn, lookup

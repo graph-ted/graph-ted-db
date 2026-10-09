@@ -21,7 +21,7 @@ FUNCTIONS: dict[str, FunctionSpec] = {}
 
 
 def cypher_fn(*names: str, aggregating: bool = False) -> Callable:
-    """Register a Cypher function. Names are matched case-insensitively."""
+    """Register a query function. Names are matched case-insensitively."""
 
     def deco(fn: Callable) -> Callable:
         spec = FunctionSpec(names[0], fn, aggregating)
