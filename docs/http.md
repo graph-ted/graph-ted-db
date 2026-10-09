@@ -18,8 +18,8 @@ A client stores `http://127.0.0.1:8099` as its connection URL.
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/health` or `/` | Liveness: `ok`, format, graph `id` and `name`, node/edge counts. No folder path, since it needs no token. Use it (or `RETURN 1 AS ok`) as a connection test. |
-| `GET` | `/info` | `graph.json` fields, the folder path (`root`), and live node/edge counts |
+| `GET` | `/health` | Liveness only: `{"ok": true, "version": "0.1.0"}`. It needs no token, so it reveals nothing about the graph. Use it (or `RETURN 1 AS ok`) as a connection test. |
+| `GET` | `/info` or `/` | `graph.json` fields (graph `id`, `name`, format), the folder path (`root`), live node/edge counts, and `problems` counts (see `doctor`). Needs the token when one is set |
 | `POST` | `/cypher` | One query (`query`) or an atomic batch (`statements`). Writes allowed. |
 | `GET` | `/cypher?query=…` | Read convenience for curl. Mutating queries return `405`. `params` is a JSON object string |
 
@@ -100,7 +100,9 @@ Writes through openCypher queries include `CREATE` / `MERGE` / `SET` / `DELETE` 
 
 Loopback binds (`127.0.0.1`, `localhost`, `::1`) may run with no token.
 
-Binding any other host requires a token: `--token` or env `GRAPH_TED_DB_TOKEN`. Serve refuses to start (exit 1) if the host is off-loopback and the token is empty. Default bind remains `127.0.0.1`.
+Binding any other host requires a token: `--token` or env `GRAPH_TED_DB_TOKEN`. Serve refuses to start (exit 1) if the host is off-loopback and the token is empty. Default bind remains `127.0.0.1`. Even with a token, serve prints a warning when it listens off loopback: traffic is plain HTTP, so anyone on the network path can read it. Prefer loopback, or put the daemon behind TLS.
+
+If the port is taken, serve exits with `port N in use; pass --port`.
 
 When a token is configured, every route except `GET /health` requires one of:
 
@@ -109,7 +111,7 @@ When a token is configured, every route except `GET /health` requires one of:
 
 Missing or wrong token is `401`. The token protects the *port*, not the files on disk — see [Security](security.md). This is not at-rest encryption and not a hosted multi-tenant server.
 
-If `GET /health` shows a different `name`/`id` than the serve banner, another `graph-ted-db serve` is still bound to 8099 (common on Windows). Stop it, then start once:
+If `GET /info` shows a different `name`/`id` than the serve banner, another `graph-ted-db serve` is still bound to 8099 (common on Windows). Stop it, then start once:
 
 ```bat
 netstat -ano | findstr :8099

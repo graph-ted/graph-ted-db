@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+import graph_ted_db
 from graph_ted_db.server import make_server, serve
 from graph_ted_db.store import GraphStore, init_graph
 
@@ -44,25 +45,13 @@ def test_health_and_info(tmp_path: Path):
         res = conn.getresponse()
         body = json.loads(res.read())
         assert res.status == 200
-        assert body["ok"] is True
-        assert body["name"] == "http"
-        assert body["nodes"] == 1
-        # /health is open even when a token is set: no local folder path in it.
-        assert "root" not in body
-        assert set(body) == {
-            "ok",
-            "format",
-            "format_version",
-            "id",
-            "name",
-            "nodes",
-            "edges",
-            "problems",
-        }
-        assert set(body["problems"].values()) == {0}
+        # /health is open even when a token is set: status and version only.
+        assert body == {"ok": True, "version": graph_ted_db.__version__}
         conn.request("GET", "/info")
         info = json.loads(conn.getresponse().read())
         assert info["nodes"] == 1
+        assert info["name"] == "http"
+        assert set(info["problems"].values()) == {0}
         conn.close()
 
 

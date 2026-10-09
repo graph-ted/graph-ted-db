@@ -159,6 +159,8 @@ def eval_aggregate(expr: Any, rows: list[dict[str, Any]], params: dict[str, Any]
     call = aggregating_call(expr)
     if call is not None:
         spec = lookup(call.name)
+        if call.star:
+            return len(rows)
         if not call.args:
             raise CypherError(f"{call.name}() needs an argument")
         values = [evaluate(call.args[0], row, params) for row in rows]

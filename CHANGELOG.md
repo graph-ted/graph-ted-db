@@ -10,6 +10,13 @@ version may include breaking changes; they are called out under **Changed**.
 
 First public release.
 
+### Security
+
+- Unauthenticated `GET /health` returns only `ok` and the library version.
+  The graph name, id, counts and problem counts are on `GET /info`, which
+  needs the token when one is set.
+- `serve` warns when it listens off loopback, even with a token.
+
 ### Added
 
 - `GraphStore` and `init_graph`: a property graph stored in a folder of
@@ -38,6 +45,10 @@ First public release.
 - `graph-ted-db export` / `import` and `GraphStore.export` /
   `import_export`: back up the current state to one JSONL file and restore
   it into a new graph. Backup guidance in `docs/backup.md`.
+- openCypher: `count(*)`, and unaliased `RETURN` expressions (the column is
+  named by its source text, e.g. `b.name`).
+- Opening a graph above 250,000 records logs how long it took and points to
+  the Graph size docs.
 - Crash safety: one flush and fsync per multi-record transaction, replay of
   an interrupted transaction on open, torn-line repair.
 - `GraphStore.execute` / `execute_many`: a documented subset of openCypher,

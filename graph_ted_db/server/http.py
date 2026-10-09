@@ -8,6 +8,7 @@ import logging
 import os
 import re
 import socket
+import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import parse_qs, unquote_plus, urlparse
@@ -79,10 +80,7 @@ class GraphTedHandler(BaseHTTPRequestHandler):
             return
         if not self._authorize():
             return
-        if parsed.path == "/":
-            self._send_json(200, _health_payload(self.server.store))
-            return
-        if parsed.path == "/info":
+        if parsed.path in ("/", "/info"):
             self._send_json(200, _info_payload(self.server.store))
             return
         if parsed.path == "/cypher":
@@ -243,28 +241,20 @@ class GraphTedHandler(BaseHTTPRequestHandler):
 
 
 def _health_payload(store: GraphStore) -> dict[str, Any]:
-    store.refresh_index()
-    payload = {
-        "ok": True,
-        "format": store.meta.format,
-        "format_version": store.meta.format_version,
-        "id": store.meta.id,
-        "name": store.meta.name,
-        "nodes": 0,
-        "edges": 0,
-        # Counts only: /health is open without a token, so no paths.
-        "problems": store.problems(),
-    }
-    if store._index is not None:
-        payload["nodes"] = len(store._index.nodes)
-        payload["edges"] = len(store._index.edges)
-    return payload
+    """Open without a token, so only liveness and the library version."""
+    from graph_ted_db import __version__
+
+    return {"ok": True, "version": __version__}
 
 
 def _info_payload(store: GraphStore) -> dict[str, Any]:
     store.refresh_index()
     payload = store.meta.to_dict()
+    payload["ok"] = True
     payload["root"] = str(store.root)
+    payload["nodes"] = 0
+    payload["edges"] = 0
+    payload["problems"] = store.problems()
     if store._index is not None:
         payload["nodes"] = len(store._index.nodes)
         payload["edges"] = len(store._index.edges)
@@ -387,6 +377,14 @@ def serve(
         )
     if not logging.getLogger().handlers:
         logging.basicConfig(level=logging.INFO, format="%(message)s")
+    if host not in LOOPBACK_HOSTS:
+        print(
+            f"graph-ted-db: warning: listening on {host}, not loopback. Anyone who can reach"
+            " this port and has the token can read and change the graph; traffic is plain"
+            " HTTP (not encrypted). Prefer 127.0.0.1, or put it behind TLS. See docs/http.md.",
+            file=sys.stderr,
+            flush=True,
+        )
     server = make_server(store, host, port, max_records=max_records, token=token)
     bound_host, bound_port = server.server_address[:2]
     if isinstance(bound_host, bytes):  # typeshed allows bytes; TCP gives str
@@ -405,7 +403,7 @@ def serve(
         f"  pid:    {os.getpid()}\n"
         f"  auth:   {auth_note}\n"
         "  (POST /cypher [query | statements], GET /health)\n"
-        "  If GET /health name/id do not match this banner, another process owns the port.",
+        "  If GET /info name/id do not match this banner, another process owns the port.",
         flush=True,
     )
     try:

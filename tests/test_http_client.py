@@ -38,7 +38,7 @@ def test_http_client_health_and_query(tmp_path: Path):
     with _serve(g) as url:
         health = get_health(url)
         assert health["ok"] is True
-        assert health["name"] == "client"
+        assert set(health) == {"ok", "version"}
         rows = post_cypher(
             url,
             "MATCH (n:Entity {group_id: $gid}) RETURN n.name AS name",
