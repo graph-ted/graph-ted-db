@@ -19,6 +19,7 @@ from uuid import uuid4
 from graph_ted_db.index.local import LocalIndex
 from graph_ted_db.store.aliases import _GraphStoreAliases
 from graph_ted_db.store.format import (
+    FORMAT_NAME,
     FORMAT_VERSION,
     LAYOUT_PER_WRITER,
     format_timestamp,
@@ -801,6 +802,70 @@ class GraphStore(_GraphStoreAliases):
             report.legacy_shared_files = legacy
         return report
 
+    def export(self, out: str | Path) -> dict[str, int]:
+        """Write the current state (live winners only) to one JSONL file.
+
+        The first line is a header; then one ``{"type": ..., "record": ...}``
+        line per live node, edge and vector. History, tombstones and conflict
+        copies are not included. Read it back with `import_export`.
+
+        Returns:
+            Counts per record type.
+        """
+        out = Path(out).expanduser().resolve()
+        if out.is_relative_to(self.root):
+            raise ValueError("write the export outside the graph folder")
+        counts = {"nodes": 0, "edges": 0, "vectors": 0}
+        with self._lock():
+            lines = [
+                json.dumps(
+                    {
+                        "export": FORMAT_NAME,
+                        "format_version": FORMAT_VERSION,
+                        "name": self.meta.name,
+                        "exported_at": format_timestamp(),
+                    }
+                )
+            ]
+            for node in self._lww_nodes_unlocked():
+                lines.append(json.dumps({"type": "node", "record": node.to_dict()}))
+                counts["nodes"] += 1
+            for edge in self._graph_edges_unlocked():
+                lines.append(json.dumps({"type": "edge", "record": edge.to_dict()}))
+                counts["edges"] += 1
+            for vec in self._lww_vectors_unlocked():
+                rec = {"property": vec.property, **vec.to_dict()}
+                lines.append(json.dumps({"type": "vector", "record": rec}))
+                counts["vectors"] += 1
+        replace_jsonl(out, lines)
+        return counts
+
+    def _lww_vectors_unlocked(self) -> list[VectorRecord]:
+        out: list[VectorRecord] = []
+        if not self.paths.vectors_dir.is_dir():
+            return out
+        live = {n.id for n in self._lww_nodes_unlocked()} | {
+            e.id for e in self._graph_edges_unlocked()
+        }
+        for prop_dir in sorted(self.paths.vectors_dir.iterdir()):
+            if not prop_dir.is_dir() or not is_vector_property_name(prop_dir.name):
+                continue
+            tombs: dict[str, list[Tombstone]] = defaultdict(list)
+            for tomb in self._iter_tombstones():
+                if tomb.kind == "vector" and tomb.property == prop_dir.name:
+                    tombs[tomb.id].append(tomb)
+            for stem in discover_shard_stems(prop_dir):
+                grouped: dict[str, list[VectorRecord]] = defaultdict(list)
+                for path in shard_jsonl_files(prop_dir, stem):
+                    for rec in self._parse_vectors(path, prop_dir.name):
+                        grouped[rec.id].append(rec)
+                for record_id, lives in grouped.items():
+                    picked = resolve(lives, tombs.get(record_id, []))
+                    if picked is not None and not picked.is_tombstone and record_id in live:
+                        assert isinstance(picked.payload, VectorRecord)
+                        out.append(picked.payload)
+        return out
+
     def refresh_index(self) -> None:
         """Reload the query catalog if another process wrote shards."""
         with self._lock():
@@ -1430,3 +1495,54 @@ def _wal_decode(obj: dict[str, Any]) -> tuple[str, Any] | None:
     if kind in ("delete_node", "delete_edge", "delete_vector"):
         return kind, Tombstone.from_dict(rec)
     return None
+
+
+def import_export(
+    export_file: str | Path,
+    dest: str | Path,
+    *,
+    name: str | None = None,
+    data_dir: Path | None = None,
+) -> GraphStore:
+    """Create a new graph at `dest` from a file written by `GraphStore.export`.
+
+    The new graph gets a new id. Records keep their ids and timestamps.
+    Refuses to write into an existing graph.
+    """
+    from graph_ted_db.store.init import init_graph
+
+    rows = list(iter_json_objects(Path(export_file)))
+    if not rows or rows[0][1].get("export") != FORMAT_NAME:
+        raise ValueError(f"not a graph-ted-db export: {export_file}")
+    header = rows[0][1]
+    init_graph(dest, name=name or str(header.get("name") or "graph"))
+    store = GraphStore.open(dest, data_dir=data_dir)
+    nodes, edges, vectors = [], [], []
+    for _, obj in rows[1:]:
+        rec, kind = obj.get("record"), obj.get("type")
+        if not isinstance(rec, dict):
+            raise ValueError(f"bad export line: {obj!r}")
+        if kind == "node":
+            nodes.append(NodeRecord.from_dict(rec))
+        elif kind == "edge":
+            edges.append(EdgeRecord.from_dict(rec))
+        elif kind == "vector":
+            vectors.append(VectorRecord.from_dict(rec, property=str(rec.get("property"))))
+        else:
+            raise ValueError(f"unknown export record type: {kind!r}")
+    with store._lock():
+        with append_batch():
+            for node in nodes:
+                store._put_node_unlocked(_unstamped(node))
+            for edge in edges:
+                store._put_edge_unlocked(_unstamped(edge))
+            for vec in vectors:
+                store._put_vector_unlocked(_unstamped(vec))
+        store._rebuild_labels_unlocked()
+        store._rebuild_index_unlocked()
+    return store
+
+
+def _unstamped(record: Any) -> Any:
+    # The importing writer re-stamps every version as its own.
+    return replace(record, writer="", counter=0)

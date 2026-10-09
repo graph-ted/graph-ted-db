@@ -35,6 +35,9 @@ First public release.
   in `/health` (counts only), and a warning on open, for skipped lines,
   other writers' unterminated files, cloud-only placeholders and empty record
   files. `doctor` lists them.
+- `graph-ted-db export` / `import` and `GraphStore.export` /
+  `import_export`: back up the current state to one JSONL file and restore
+  it into a new graph. Backup guidance in `docs/backup.md`.
 - Crash safety: one flush and fsync per multi-record transaction, replay of
   an interrupted transaction on open, torn-line repair.
 - `GraphStore.execute` / `execute_many`: a documented subset of openCypher,

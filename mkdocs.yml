@@ -62,6 +62,7 @@ nav:
       - Security: security.md
       - Quality: quality.md
       - Sharing a graph: sharing.md
+      - Backup and restore: backup.md
       - On-disk format: format.md
       - openCypher subset: cypher.md
       - HTTP: http.md
