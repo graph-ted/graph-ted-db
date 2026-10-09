@@ -33,3 +33,21 @@ Full layout: [On-disk format](format.md).
 ## What this repository is not
 
 This repository is the database library only. Application UI, agents, and higher-level toolkit pieces live elsewhere in the graph-ted family — see [Stack](stack.md).
+
+## Graph size
+
+graph-ted-db loads the whole graph into memory when a store opens, so open time
+and memory grow with the number of records. Measured on one Linux machine
+(Python 3.13, small properties, one writer):
+
+| Nodes | Edges | Open | Filter query (full label scan) | Memory |
+|------:|------:|-----:|-------------------------------:|-------:|
+| 10,000 | 5,000 | 0.9 s | 0.05 s | 50 MB |
+| 100,000 | 50,000 | 8 s | 0.9 s | 310 MB |
+| 250,000 | 125,000 | 22 s | 2.7 s | 660 MB |
+| 500,000 | 250,000 | 44 s | 4.8 s | 1.3 GB |
+
+**Comfortable size: up to about 100,000 records (nodes plus edges).** Beyond
+about 250,000 records, opening takes tens of seconds and memory passes 600 MB.
+Larger graphs work, but a server graph database is a better fit. Lookups by id
+stay fast at every size. Pattern and filter queries scan the matching label.

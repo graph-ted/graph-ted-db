@@ -66,6 +66,26 @@ curl -s http://127.0.0.1:8099/cypher -H 'Content-Type: application/json' \
 - **Sync-friendly** — last-write-wins per record; conflict-copy shards merged on read
 - **NetworkX-style helpers** — `add_node`, `add_edge`, `neighbors`, and related methods on the same `GraphStore` (no algorithm suite)
 
+## What it is and isn't
+
+**It is:**
+
+- A Python library that stores a property graph (nodes, edges, properties, embeddings) as plain JSONL files in one folder.
+- In-process: open, read, write and query from your own Python process. No server to install or run.
+- A documented subset of openCypher, plus NetworkX-style helpers.
+- Sync-friendly for one writer at a time: the folder can live in OneDrive, Dropbox or an `rclone bisync` folder (see [Sharing](https://graph-ted.com/graph-ted-db/docs/sharing/)).
+- Small: no runtime dependencies beyond the Python standard library.
+
+**It isn't:**
+
+- A database server, a hosted service or a multi-tenant system. The optional HTTP endpoint is for local processes on the same machine.
+- Encrypted. Files are ordinary files; protect them with disk encryption and OS permissions.
+- A complete Cypher implementation or a Neo4j replacement. Unsupported clauses fail with an error rather than being ignored.
+- A graph-algorithm library. Use NetworkX or similar on exported data.
+- Built for very large graphs. The whole graph is loaded into memory when it opens; see the tested sizes in [Overview](https://graph-ted.com/graph-ted-db/docs/overview/).
+- Stable across minor versions before 1.0 (see [Versioning](#versioning)).
+- Telemetry-enabled. It makes no network calls of its own.
+
 ## When to use it
 
 Good fit for prototypes, local tools, agents, and small trusted groups that want a property graph next to the app.
