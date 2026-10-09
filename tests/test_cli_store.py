@@ -144,3 +144,15 @@ def test_cli_updated_by_is_opt_in(tmp_path: Path, capsys, monkeypatch):
     rows = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
     assert "os-login-name" not in {r["updated_by"] for r in rows}
     assert "q" in {r["updated_by"] for r in rows if r["labels"] == ["B"]}
+
+
+def test_cli_cypher_query_after_options(tmp_path: Path, capsys, monkeypatch):
+    """The docs put --params before the query; that must work on every Python."""
+    monkeypatch.setenv("GRAPH_TED_DB_DATA", str(tmp_path / "data"))
+    root = tmp_path / "graph"
+    assert main(["init", str(root), "--name", "cli"]) == 0
+    assert main(["put-node", str(root), "--label", "Entity", "--prop", "name=Alice"]) == 0
+    capsys.readouterr()
+    query = "MATCH (n:Entity) WHERE n.name = $n RETURN n.name AS name"
+    assert main(["cypher", str(root), "--params", '{"n": "Alice"}', query]) == 0
+    assert json.loads(capsys.readouterr().out) == {"name": "Alice"}

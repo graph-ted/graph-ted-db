@@ -183,7 +183,13 @@ def main(argv: list[str] | None = None) -> int:
         help="truncate query results after this many rows (default 500)",
     )
 
-    args = parser.parse_args(argv)
+    args, extra = parser.parse_known_args(argv)
+    # Python < 3.12 argparse binds the optional `query` positional before it
+    # sees later options, so `cypher PATH --params P QUERY` leaves QUERY over.
+    if getattr(args, "command", None) == "cypher" and args.query is None and len(extra) == 1:
+        args.query, extra = extra[0], []
+    if extra:
+        parser.error(f"unrecognized arguments: {' '.join(extra)}")
     try:
         return _dispatch(args)
     except (
