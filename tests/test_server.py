@@ -147,10 +147,9 @@ def test_http_cypher_sees_put_from_another_process(tmp_path: Path):
 
 def test_second_listener_on_same_port_fails(tmp_path: Path):
     g = _open(tmp_path)
-    with _serve(g) as (host, port):
-        with pytest.raises(OSError):
-            other = make_server(g, host, port)
-            other.server_close()
+    with _serve(g) as (host, port), pytest.raises(OSError):
+        other = make_server(g, host, port)
+        other.server_close()
 
 
 def test_post_cypher_statements_batch(tmp_path: Path):

@@ -1027,7 +1027,7 @@ class GraphStore(_GraphStoreAliases):
 
     def _observe(self, updated_at: str, counter: int) -> None:
         # format_timestamp output is fixed-width, so strings sort like times.
-        if (updated_at, counter) > self._hlc:
+        if (updated_at, counter) > self._hlc:  # noqa: PLR1730 (hot path, keep explicit)
             self._hlc = (updated_at, counter)
 
     def _clock_now(self) -> str:

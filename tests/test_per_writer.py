@@ -143,7 +143,7 @@ def test_writer_id_contains_no_user_os_or_host_names(tmp_path: Path) -> None:
     for fn in (getpass.getuser, socket.gethostname, platform.node, platform.system):
         try:
             value = fn()
-        except Exception:  # noqa: BLE001 - some CI images have no login name
+        except Exception:  # some CI images have no login name
             continue
         names |= {v.lower() for v in value.replace(".", " ").split() if len(v) >= 3}
     texts = [g.writer_id]
@@ -197,7 +197,7 @@ def test_doctor_on_half_synced_copy_reports_and_modifies_nothing(tmp_path: Path)
     for p in (a / "nodes").iterdir():
         dst = b / "nodes" / p.name
         dst.write_bytes(p.read_bytes())
-    victim = sorted((b / "nodes").iterdir())[0]
+    victim = min((b / "nodes").iterdir())
     victim.write_bytes(victim.read_bytes()[:-5])
     before = {p: p.read_bytes() for p in (b / "nodes").iterdir()}
     sb = _open(b, tmp_path, "b")

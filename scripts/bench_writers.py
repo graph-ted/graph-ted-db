@@ -3,8 +3,14 @@
 Usage: python scripts/bench_writers.py [records]
 """
 
-import json, random, shutil, sys, tempfile, time
+import json
+import random
+import shutil
+import sys
+import tempfile
+import time
 from pathlib import Path
+
 from graph_ted_db import GraphStore, init_graph
 
 N = int(sys.argv[1]) if len(sys.argv) > 1 else 20000
@@ -45,17 +51,17 @@ for w in (1, 2, 4):
         t = time.perf_counter()
         g.get_node(ids[777])
         gets.append(time.perf_counter() - t)
-    out[w] = dict(
-        records=N,
-        versions=N * (1 + EDITS),
-        write_s=round(write_s, 2),
-        open_s=round(min(opens), 3),
-        match_ms=round(min(qs) * 1000, 2),
-        get_ms=round(min(gets) * 1000, 2),
-        files=len(files),
-        size_mb=round(size / 1e6, 2),
-        live=len(list(g.iter_nodes())),
-    )
+    out[w] = {
+        "records": N,
+        "versions": N * (1 + EDITS),
+        "write_s": round(write_s, 2),
+        "open_s": round(min(opens), 3),
+        "match_ms": round(min(qs) * 1000, 2),
+        "get_ms": round(min(gets) * 1000, 2),
+        "files": len(files),
+        "size_mb": round(size / 1e6, 2),
+        "live": len(list(g.iter_nodes())),
+    }
     print(w, out[w], flush=True)
 print(json.dumps(out, indent=2))
 shutil.rmtree(base, ignore_errors=True)

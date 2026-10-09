@@ -144,7 +144,7 @@ def cmd_write(args: argparse.Namespace) -> int:
 
     plan = [json.loads(line) for line in Path(args.plan).read_text().splitlines() if line.strip()]
     store = GraphStore.open(args.store, data_dir=Path(args.data))
-    journal = open(args.journal, "a", encoding="utf-8")
+    journal = open(args.journal, "a", encoding="utf-8")  # noqa: SIM115 (closed at exit)
     batch: list[dict[str, Any]] = []
 
     def flush_batch() -> None:
@@ -323,7 +323,7 @@ class Writer:
         log = self.logdir / f"{len(self.sync_log):04d}.log"
         with open(log, "w") as fh, self._store_lock():
             proc = subprocess.run(
-                cmd, stdout=fh, stderr=subprocess.STDOUT, text=True, timeout=timeout
+                cmd, check=False, stdout=fh, stderr=subprocess.STDOUT, text=True, timeout=timeout
             )
         out = log.read_text(errors="replace")
         self.sync_log.append(
@@ -348,7 +348,7 @@ class Writer:
         with open(log, "w") as fh, self._store_lock():
             for cmd in self.overwrite_cmds():
                 proc = subprocess.run(
-                    cmd, stdout=fh, stderr=subprocess.STDOUT, text=True, timeout=timeout
+                    cmd, check=False, stdout=fh, stderr=subprocess.STDOUT, text=True, timeout=timeout
                 )
                 rc = rc or proc.returncode
         out = log.read_text(errors="replace")
@@ -397,7 +397,7 @@ class Writer:
                 "_full": "",
             }
         )
-        fh = open(log, "w")
+        fh = open(log, "w")  # noqa: SIM115 (owned by the Popen)
         return subprocess.Popen(
             self.bisync_cmd(extra), stdout=fh, stderr=subprocess.STDOUT, text=True
         )
@@ -562,7 +562,7 @@ def check_replica(
     raw = raw_scan(copy)
     try:
         store = GraphStore.open(copy, data_dir=scratch / "data")
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         res["opens"] = False
         res["open_error"] = repr(exc)
         shutil.rmtree(scratch, ignore_errors=True)
@@ -995,7 +995,7 @@ def sc6b_kill_rclone(cfg: Config, name: str = "s6b_kill_rclone", n: int = 6000) 
     p.wait()
     notes["a_lock_left_behind"] = len(a.lock_files())
     remote_list = subprocess.run(
-        [cfg.rclone, "lsf", "-R", a.remote], capture_output=True, text=True
+        [cfg.rclone, "lsf", "-R", a.remote], check=False, capture_output=True, text=True
     ).stdout
     notes["remote_files_after_kill"] = len(
         [l for l in remote_list.splitlines() if l.endswith(".jsonl")]
@@ -1070,7 +1070,7 @@ def sc7_open_during_sync(
                     "skipped": len(store.skipped_lines),
                 }
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             samples.append({"t": round(time.time() - t0, 1), "error": repr(exc)})
     p.wait()
     after = sum(1 for _ in store.iter_nodes()) if store else None
@@ -1242,7 +1242,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         "run_id": cfg.run_id,
         "extra_flags": cfg.extra_flags,
         "rclone": subprocess.run(
-            [cfg.rclone, "version"], capture_output=True, text=True
+            [cfg.rclone, "version"], check=False, capture_output=True, text=True
         ).stdout.splitlines()[:1],
         "results": [],
     }
@@ -1250,7 +1250,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         t0 = time.time()
         try:
             res = SCENARIOS[key](cfg)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             import traceback
 
             res = {"scenario": key, "error": repr(exc), "trace": traceback.format_exc()[-3000:]}

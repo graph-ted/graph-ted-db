@@ -60,3 +60,9 @@ ignore_missing_imports = true
 
 [tool.ruff]
 line-length = 100
+
+[tool.ruff.lint]
+# Intentional patterns in this codebase; changing them would change behavior or public errors:
+# TRY004 (ValueError is the documented error), BLE001/S110/S112 (best-effort cleanup and
+# probes), ISC004 (multi-line messages built by implicit concatenation).
+extend-ignore = ["TRY004", "BLE001", "S110", "S112", "ISC004"]

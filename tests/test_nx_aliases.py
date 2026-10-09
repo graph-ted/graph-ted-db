@@ -6,7 +6,7 @@ from uuid import NAMESPACE_URL, uuid5
 import pytest
 
 from graph_ted_db.store import GraphStore, init_graph
-from graph_ted_db.store.aliases import DEFAULT_REL_TYPE, _ALIAS_NAMESPACE, alias_record_id
+from graph_ted_db.store.aliases import _ALIAS_NAMESPACE, DEFAULT_REL_TYPE, alias_record_id
 
 
 def _open(tmp_path: Path, name: str = "g") -> GraphStore:
@@ -166,7 +166,7 @@ def test_uuid_node_id_is_the_record_id(tmp_path: Path):
 
 def test_neighbors_reads_adjacency_index(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     g = _open(tmp_path)
-    alice = g.add_node("alice")
+    g.add_node("alice")
     bob = g.add_node("bob")
     g.add_edge("alice", "bob", type="KNOWS")
 
