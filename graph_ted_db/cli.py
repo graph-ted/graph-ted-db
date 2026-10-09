@@ -179,11 +179,11 @@ def _dispatch(args: argparse.Namespace) -> int:
         print(json.dumps(rec.to_dict(), ensure_ascii=False))
         return 0
     if args.command == "get-node":
-        rec = store.get_node(args.record_id)
-        if rec is None:
+        found_node = store.get_node(args.record_id)
+        if found_node is None:
             print(f"graph-ted-db: node {args.record_id} not found", file=sys.stderr)
             return 1
-        print(json.dumps(rec.to_dict(), ensure_ascii=False))
+        print(json.dumps(found_node.to_dict(), ensure_ascii=False))
         return 0
     if args.command == "ls-nodes":
         for rec in store.iter_nodes():
@@ -194,7 +194,7 @@ def _dispatch(args: argparse.Namespace) -> int:
         print(json.dumps(tomb.to_dict(), ensure_ascii=False))
         return 0
     if args.command == "put-edge":
-        rec = store.make_edge(
+        edge = store.make_edge(
             type=args.edge_type,
             from_id=args.from_id,
             to_id=args.to_id,
@@ -202,18 +202,18 @@ def _dispatch(args: argparse.Namespace) -> int:
             record_id=args.record_id,
             updated_by=_who(args.updated_by),
         )
-        print(json.dumps(rec.to_dict(), ensure_ascii=False))
+        print(json.dumps(edge.to_dict(), ensure_ascii=False))
         return 0
     if args.command == "get-edge":
-        rec = store.get_edge(args.record_id)
-        if rec is None:
+        found_edge = store.get_edge(args.record_id)
+        if found_edge is None:
             print(f"graph-ted-db: edge {args.record_id} not found", file=sys.stderr)
             return 1
-        print(json.dumps(rec.to_dict(), ensure_ascii=False))
+        print(json.dumps(found_edge.to_dict(), ensure_ascii=False))
         return 0
     if args.command == "ls-edges":
-        for rec in store.iter_edges():
-            print(json.dumps(rec.to_dict(), ensure_ascii=False))
+        for edge in store.iter_edges():
+            print(json.dumps(edge.to_dict(), ensure_ascii=False))
         return 0
     if args.command == "delete-edge":
         tomb = store.delete_edge(args.record_id, updated_by=_who(args.updated_by))

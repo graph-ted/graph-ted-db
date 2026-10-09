@@ -341,10 +341,11 @@ class Parser:
 
     def parse_node_pattern(self) -> NodePattern:
         self.eat("(")
-        name = None
+        name: str | None = None
         if self.at("IDENT"):
-            name = self.eat("IDENT").value
-            assert isinstance(name, str)
+            ident = self.eat("IDENT").value
+            assert isinstance(ident, str)
+            name = ident
         labels: list[str] = []
         while self.match(":"):
             labels.append(str(self.eat("IDENT").value))
@@ -359,10 +360,11 @@ class Parser:
         if not incoming:
             self.eat("-")
         self.eat("[")
-        name = None
+        name: str | None = None
         if self.at("IDENT"):
-            name = self.eat("IDENT").value
-            assert isinstance(name, str)
+            ident = self.eat("IDENT").value
+            assert isinstance(ident, str)
+            name = ident
         types: list[str] = []
         if self.match(":"):
             types.append(str(self.eat("IDENT").value))

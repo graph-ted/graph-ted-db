@@ -5,9 +5,10 @@ from __future__ import annotations
 import base64
 import json
 import struct
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Literal, Mapping
+from typing import Any, Literal
 
 from graph_ted_db.store.format import (
     FORMAT_NAME,

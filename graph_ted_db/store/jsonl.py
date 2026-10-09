@@ -124,7 +124,7 @@ class _AppendBatch:
             key.parent.mkdir(parents=True, exist_ok=True)
             created = not key.exists()
             repair_torn_jsonl(key)
-            handle = key.open("a", encoding="utf-8", newline="\n")
+            handle: TextIO = key.open("a", encoding="utf-8", newline="\n")
             slot = (handle, created)
             self._files[key] = slot
         handle = slot[0]

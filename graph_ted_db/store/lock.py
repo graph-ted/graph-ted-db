@@ -38,7 +38,7 @@ def wal_dir_for(graph_id: str, data_dir: Path | None = None) -> Path:
 
 
 def _lock_fd(fd) -> None:
-    if os.name == "nt":
+    if sys.platform == "win32":
         import msvcrt
 
         fd.seek(0, os.SEEK_END)
@@ -54,7 +54,7 @@ def _lock_fd(fd) -> None:
 
 
 def _unlock_fd(fd) -> None:
-    if os.name == "nt":
+    if sys.platform == "win32":
         import msvcrt
 
         fd.seek(0)

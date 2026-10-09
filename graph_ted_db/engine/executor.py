@@ -25,7 +25,12 @@ from graph_ted_db.engine.ast import (
     WithClause,
 )
 from graph_ted_db.engine.errors import CypherError
-from graph_ted_db.engine.eval import _truth, contains_aggregate, eval_aggregate, evaluate
+from graph_ted_db.engine.eval import (
+    _truth,
+    contains_aggregate,
+    eval_aggregate,
+    evaluate,
+)
 from graph_ted_db.engine.values import (
     NodeView,
     RelView,
@@ -58,6 +63,9 @@ class Executor:
         if index is None:
             raise CypherError("graph index is not built; open the store first")
         self.index = index
+
+    def match_pattern(self, row: dict, pattern: Pattern) -> list[dict]:
+        return match_pattern(self, row, pattern)
 
     def run(self, query) -> list[dict[str, Any]]:
         if isinstance(query, UnionQuery):
@@ -622,8 +630,6 @@ def _walk_to(
         _expand(ex, nxt, pattern, placed2, results)
 
 
-Executor.match_pattern = match_pattern  # type: ignore[method-assign]
-
 
 _EMBED_KEYS = frozenset(
     {"name_embedding", "fact_embedding", "embedding", "content_embedding", "summary_embedding"}
@@ -664,9 +670,10 @@ def _strip_embed(props: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]
 
 
 def _persist_node(ex: Executor, view: NodeView) -> NodeView:
+    from uuid import uuid4
+
     from graph_ted_db.store.format import format_timestamp, normalize_uuid
     from graph_ted_db.store.records import NodeRecord
-    from uuid import uuid4
 
     try:
         nid = normalize_uuid(view.id)
@@ -688,9 +695,10 @@ def _persist_node(ex: Executor, view: NodeView) -> NodeView:
 
 
 def _persist_edge(ex: Executor, view: RelView) -> RelView:
+    from uuid import uuid4
+
     from graph_ted_db.store.format import format_timestamp, normalize_uuid
     from graph_ted_db.store.records import EdgeRecord
-    from uuid import uuid4
 
     try:
         eid = normalize_uuid(view.id)
@@ -842,6 +850,7 @@ def _upsert_pattern(
 
 
 def _apply_set_item(ex: Executor, row: dict, item: Any) -> dict:
+    view: NodeView | RelView
     target = row.get(item.variable)
     if target is None:
         raise CypherError(f"SET unknown variable {item.variable}")

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -58,8 +59,8 @@ def winner(*candidates: LwwCandidate) -> LwwCandidate:
 
 
 def resolve(
-    lives: list[LiveRecord],
-    tombs: list[Tombstone],
+    lives: Sequence[LiveRecord],
+    tombs: Sequence[Tombstone],
 ) -> LwwCandidate | None:
     """Pick the LWW winner among live versions and tombstones. None if empty."""
     candidates = [candidate_from_live(r) for r in lives] + [

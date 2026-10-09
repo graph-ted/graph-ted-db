@@ -43,3 +43,11 @@ include = ["graph_ted_db*"]
 testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "-q"
+
+[tool.mypy]
+python_version = "3.10"
+
+[[tool.mypy.overrides]]
+# Optional extra: graphiti-core is only needed for graph_ted_db.driver.graphiti.
+module = ["graphiti_core", "graphiti_core.*"]
+ignore_missing_imports = true

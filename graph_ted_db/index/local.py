@@ -8,9 +8,10 @@ from __future__ import annotations
 
 import json
 from collections import defaultdict
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable, Literal
+from typing import Any, Literal
 
 from graph_ted_db.store.jsonl import replace_json_file, replace_jsonl
 from graph_ted_db.store.records import EdgeRecord, NodeRecord
