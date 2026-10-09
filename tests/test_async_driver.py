@@ -30,9 +30,7 @@ def _driver_cls():
         mod.GraphDriverSession = GraphDriverSession
         mod.GraphProvider = provider
         sys.modules.setdefault("graphiti_core", types.ModuleType("graphiti_core"))
-        sys.modules.setdefault(
-            "graphiti_core.driver", types.ModuleType("graphiti_core.driver")
-        )
+        sys.modules.setdefault("graphiti_core.driver", types.ModuleType("graphiti_core.driver"))
         sys.modules["graphiti_core.driver.driver"] = mod
         from graph_ted_db.driver.graphiti import GraphTedDbDriver
     return GraphTedDbDriver
@@ -109,9 +107,7 @@ def test_inprocess_concurrent_writes(tmp_path: Path):
         return rows
 
     async def read() -> list:
-        rows, _, _ = await driver.execute_query(
-            "MATCH (n) RETURN n.name AS name"
-        )
+        rows, _, _ = await driver.execute_query("MATCH (n) RETURN n.name AS name")
         return rows
 
     async def go():
@@ -121,7 +117,9 @@ def test_inprocess_concurrent_writes(tmp_path: Path):
         )
 
     results = asyncio.run(go())
-    assert results[:workers] == [[{"uuid": f"00000000-0000-4000-8000-{100 + i:012d}"}] for i in range(workers)]
+    assert results[:workers] == [
+        [{"uuid": f"00000000-0000-4000-8000-{100 + i:012d}"}] for i in range(workers)
+    ]
     reopened = GraphStore.open(root, data_dir=data)
     names = {node.props.get("name") for node in reopened.iter_nodes()}
     assert names == {"anchor"} | {f"n{i}" for i in range(workers)}

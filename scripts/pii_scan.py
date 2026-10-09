@@ -36,15 +36,31 @@ LOCAL_TERMS_FILE = ".pii-terms.local"
 GENERIC_RULES: list[tuple[str, re.Pattern[str]]] = [
     ("onedrive-share-link", re.compile(r"(?i)\b(?:onedrive\.live\.com|1drv\.ms)/")),
     ("sharepoint-personal-path", re.compile(r"(?i)[a-z0-9-]+-my\.sharepoint\.com/personal/")),
-    ("onedrive-local-path", re.compile(
-        r"(?i)(?:[~/\\]|[a-z]:\\)(?:[^\s/\\]+[/\\])*OneDrive(?: - [^/\\\n]+)?[/\\]")),
+    (
+        "onedrive-local-path",
+        re.compile(r"(?i)(?:[~/\\]|[a-z]:\\)(?:[^\s/\\]+[/\\])*OneDrive(?: - [^/\\\n]+)?[/\\]"),
+    ),
     ("onedrive-mount-path", re.compile(r"(?i)/(?:mnt|media|run/user/\d+)/[^\s/]*onedrive[^\s/]*/")),
-    ("home-path-unix", re.compile(r"(?<![\w.])/home/(?!runner/|user/|<|\$|\{|you/|me/)[a-z_][\w.-]*/")),
-    ("home-path-mac", re.compile(r"(?<![\w.])/Users/(?!Shared/|<|\$|\{|you/|me/|user/|runner/)[A-Za-z_][\w.-]*/")),
-    ("home-path-windows", re.compile(
-        r"(?i)\b[a-z]:\\{1,2}Users\\{1,2}(?!<|%|\{|\$|you\\|user\\|public\\|default\\|runneradmin\\)[\w.-]+")),
-    ("personal-email", re.compile(
-        r"(?i)\b[\w.+-]+@(?:gmail|googlemail|outlook|hotmail|live|msn|icloud|me|yahoo|proton|protonmail|aol)\.[a-z.]{2,6}\b")),
+    (
+        "home-path-unix",
+        re.compile(r"(?<![\w.])/home/(?!runner/|user/|<|\$|\{|you/|me/)[a-z_][\w.-]*/"),
+    ),
+    (
+        "home-path-mac",
+        re.compile(r"(?<![\w.])/Users/(?!Shared/|<|\$|\{|you/|me/|user/|runner/)[A-Za-z_][\w.-]*/"),
+    ),
+    (
+        "home-path-windows",
+        re.compile(
+            r"(?i)\b[a-z]:\\{1,2}Users\\{1,2}(?!<|%|\{|\$|you\\|user\\|public\\|default\\|runneradmin\\)[\w.-]+"
+        ),
+    ),
+    (
+        "personal-email",
+        re.compile(
+            r"(?i)\b[\w.+-]+@(?:gmail|googlemail|outlook|hotmail|live|msn|icloud|me|yahoo|proton|protonmail|aol)\.[a-z.]{2,6}\b"
+        ),
+    ),
     ("rclone-config-token", re.compile(r'(?i)"(?:access_token|refresh_token)"\s*:\s*"[^"]{8,}')),
     ("rclone-drive-id", re.compile(r"(?im)^\s*drive_id\s*=\s*\S+")),
 ]
@@ -65,7 +81,9 @@ class Finding:
         return f"{self.path}:{self.line}: {self.rule}"
 
 
-def load_local_rules(root: Path = ROOT, env: dict[str, str] | None = None) -> list[tuple[str, re.Pattern[str]]]:
+def load_local_rules(
+    root: Path = ROOT, env: dict[str, str] | None = None
+) -> list[tuple[str, re.Pattern[str]]]:
     env = dict(os.environ if env is None else env)
     terms: list[str] = [t for t in env.get("GTDB_PII_TERMS", "").split(",") if t.strip()]
     remotes: list[str] = [r for r in env.get("GTDB_PII_REMOTES", "").split(",") if r.strip()]
@@ -88,7 +106,9 @@ def load_local_rules(root: Path = ROOT, env: dict[str, str] | None = None) -> li
             rules.append((f"local-term#{i + 1}", re.compile(re.escape(term), re.IGNORECASE)))
     for i, name in enumerate(r.strip().rstrip(":") for r in remotes):
         if name:
-            rules.append((f"local-remote#{i + 1}", re.compile(rf"(?i)(?<![\w-]){re.escape(name)}:")))
+            rules.append(
+                (f"local-remote#{i + 1}", re.compile(rf"(?i)(?<![\w-]){re.escape(name)}:"))
+            )
     return rules
 
 
@@ -119,15 +139,18 @@ def scan_files(paths: list[str], rules, root: Path = ROOT) -> list[Finding]:
             text = p.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError):
             continue
-        active = rules if norm not in SELF_PATHS else [r for r in rules if r[0].startswith("local-")]
+        active = (
+            rules if norm not in SELF_PATHS else [r for r in rules if r[0].startswith("local-")]
+        )
         findings.extend(scan_text(norm, text, active))
     return findings
 
 
 def scan_history(rules, root: Path = ROOT) -> list[Finding]:
     fmt = "--format=commit %H%nauthor %an <%ae>%ncommitter %cn <%ce>%n%B"
-    proc = subprocess.run(["git", "log", "--all", "-p", "--no-color", fmt], cwd=root,
-                          capture_output=True, check=True)
+    proc = subprocess.run(
+        ["git", "log", "--all", "-p", "--no-color", fmt], cwd=root, capture_output=True, check=True
+    )
     text = proc.stdout.decode("utf-8", errors="replace")
     local_only = [r for r in rules if r[0].startswith("local-")]
     findings: list[Finding] = []
@@ -164,8 +187,11 @@ def main(argv: list[str] | None = None) -> int:
     for f in findings:
         print(f)
     local_count = sum(1 for r in rules if r[0].startswith("local-"))
-    print(f"pii_scan: {len(findings)} finding(s); {len(GENERIC_RULES)} generic rules, "
-          f"{local_count} local rules", file=sys.stderr)
+    print(
+        f"pii_scan: {len(findings)} finding(s); {len(GENERIC_RULES)} generic rules, "
+        f"{local_count} local rules",
+        file=sys.stderr,
+    )
     return 1 if findings else 0
 
 

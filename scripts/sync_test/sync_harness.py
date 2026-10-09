@@ -153,18 +153,41 @@ def cmd_write(args: argparse.Namespace) -> int:
             for op in batch:
                 stamp = format_timestamp()
                 if op["op"] == "node":
-                    rec = NodeRecord(id=op["id"], updated_at=stamp, labels=tuple(op["labels"]),
-                                     props=op["props"], updated_by=args.writer)
+                    rec = NodeRecord(
+                        id=op["id"],
+                        updated_at=stamp,
+                        labels=tuple(op["labels"]),
+                        props=op["props"],
+                        updated_by=args.writer,
+                    )
                     store.put_node(rec)
-                    entries.append({"kind": "node", "id": op["id"], "at": stamp,
-                                    "hash": node_hash(op["labels"], op["props"])})
+                    entries.append(
+                        {
+                            "kind": "node",
+                            "id": op["id"],
+                            "at": stamp,
+                            "hash": node_hash(op["labels"], op["props"]),
+                        }
+                    )
                 elif op["op"] == "edge":
-                    rec = EdgeRecord(id=op["id"], updated_at=stamp, type=op["type"],
-                                     from_id=op["from"], to_id=op["to"], props=op["props"],
-                                     updated_by=args.writer)
+                    rec = EdgeRecord(
+                        id=op["id"],
+                        updated_at=stamp,
+                        type=op["type"],
+                        from_id=op["from"],
+                        to_id=op["to"],
+                        props=op["props"],
+                        updated_by=args.writer,
+                    )
                     store.put_edge(rec)
-                    entries.append({"kind": "edge", "id": op["id"], "at": stamp,
-                                    "hash": edge_hash(op["type"], op["from"], op["to"], op["props"])})
+                    entries.append(
+                        {
+                            "kind": "edge",
+                            "id": op["id"],
+                            "at": stamp,
+                            "hash": edge_hash(op["type"], op["from"], op["to"], op["props"]),
+                        }
+                    )
                 elif op["op"] in ("del_node", "del_edge"):
                     kind = "node" if op["op"] == "del_node" else "edge"
                     if kind == "node":
@@ -238,10 +261,22 @@ class Writer:
         return self.base / "journal.jsonl"
 
     def bisync_cmd(self, extra: list[str] | None = None) -> list[str]:
-        cmd = [self.cfg.rclone, "bisync", str(self.store), self.remote,
-               "--workdir", str(self.workdir), "--create-empty-src-dirs",
-               "--resilient", "--recover", "--max-lock", "2m", "-v",
-               *self.cfg.extra_flags, *(extra or [])]
+        cmd = [
+            self.cfg.rclone,
+            "bisync",
+            str(self.store),
+            self.remote,
+            "--workdir",
+            str(self.workdir),
+            "--create-empty-src-dirs",
+            "--resilient",
+            "--recover",
+            "--max-lock",
+            "2m",
+            "-v",
+            *self.cfg.extra_flags,
+            *(extra or []),
+        ]
         if not self.synced_once:
             cmd.append("--resync")
         return cmd
@@ -257,12 +292,21 @@ class Writer:
         t0 = time.time()
         log = self.logdir / f"{len(self.sync_log):04d}.log"
         with open(log, "w") as fh, self._store_lock():
-            proc = subprocess.run(cmd, stdout=fh, stderr=subprocess.STDOUT, text=True, timeout=timeout)
+            proc = subprocess.run(
+                cmd, stdout=fh, stderr=subprocess.STDOUT, text=True, timeout=timeout
+            )
         out = log.read_text(errors="replace")
-        self.sync_log.append({"t": round(t0, 3), "rc": proc.returncode,
-                              "secs": round(time.time() - t0, 3),
-                              "resync": "--resync" in cmd, "log": log.name,
-                              "out": out[-4000:], "_full": out})
+        self.sync_log.append(
+            {
+                "t": round(t0, 3),
+                "rc": proc.returncode,
+                "secs": round(time.time() - t0, 3),
+                "resync": "--resync" in cmd,
+                "log": log.name,
+                "out": out[-4000:],
+                "_full": out,
+            }
+        )
         if proc.returncode == 0:
             self.synced_once = True
         return proc.returncode
@@ -276,7 +320,10 @@ class Writer:
         """
         import contextlib
 
-        if os.environ.get("GTDB_SYNC_HOLD_LOCK") != "1" or not (self.store / "graph.json").is_file():
+        if (
+            os.environ.get("GTDB_SYNC_HOLD_LOCK") != "1"
+            or not (self.store / "graph.json").is_file()
+        ):
             return contextlib.nullcontext()
         from graph_ted_db.store import load_graph_meta
         from graph_ted_db.store.lock import exclusive_lock, lock_path_for
@@ -285,22 +332,51 @@ class Writer:
 
     def start_sync(self, extra: list[str] | None = None) -> subprocess.Popen:
         log = self.logdir / f"{len(self.sync_log):04d}-bg.log"
-        self.sync_log.append({"t": round(time.time(), 3), "rc": None, "log": log.name,
-                              "background": True, "out": "", "_full": ""})
+        self.sync_log.append(
+            {
+                "t": round(time.time(), 3),
+                "rc": None,
+                "log": log.name,
+                "background": True,
+                "out": "",
+                "_full": "",
+            }
+        )
         fh = open(log, "w")
-        return subprocess.Popen(self.bisync_cmd(extra), stdout=fh, stderr=subprocess.STDOUT, text=True)
+        return subprocess.Popen(
+            self.bisync_cmd(extra), stdout=fh, stderr=subprocess.STDOUT, text=True
+        )
 
     def lock_files(self) -> list[Path]:
         return sorted(self.workdir.glob("*.lck"))
 
-    def write(self, plan: list[dict[str, Any]], *, batch: int = 1, background: bool = False,
-              env: dict[str, str] | None = None):
+    def write(
+        self,
+        plan: list[dict[str, Any]],
+        *,
+        batch: int = 1,
+        background: bool = False,
+        env: dict[str, str] | None = None,
+    ):
         plan_path = self.base / f"plan-{uuid.uuid4().hex[:6]}.jsonl"
         plan_path.write_text("".join(json.dumps(p) + "\n" for p in plan))
-        cmd = [sys.executable, str(Path(__file__).resolve()), "write",
-               "--store", str(self.store), "--data", str(self.data),
-               "--journal", str(self.journal), "--plan", str(plan_path),
-               "--writer", self.name, "--batch", str(batch)]
+        cmd = [
+            sys.executable,
+            str(Path(__file__).resolve()),
+            "write",
+            "--store",
+            str(self.store),
+            "--data",
+            str(self.data),
+            "--journal",
+            str(self.journal),
+            "--plan",
+            str(plan_path),
+            "--writer",
+            self.name,
+            "--batch",
+            str(batch),
+        ]
         full_env = dict(os.environ)
         full_env.update(env or {})
         if background:
@@ -309,20 +385,47 @@ class Writer:
         return None
 
 
-def node_op(scenario: str, writer: str, i: int, *, rev: int = 0, owner: str | None = None,
-            label: str = "Entity") -> dict[str, Any]:
+def node_op(
+    scenario: str,
+    writer: str,
+    i: int,
+    *,
+    rev: int = 0,
+    owner: str | None = None,
+    label: str = "Entity",
+) -> dict[str, Any]:
     owner = owner or writer
-    props = {"scenario": scenario, "owner": owner, "i": i, "rev": rev, "by": writer,
-             "payload": hashlib.sha256(f"{scenario}{owner}{i}{rev}{writer}".encode()).hexdigest()}
+    props = {
+        "scenario": scenario,
+        "owner": owner,
+        "i": i,
+        "rev": rev,
+        "by": writer,
+        "payload": hashlib.sha256(f"{scenario}{owner}{i}{rev}{writer}".encode()).hexdigest(),
+    }
     return {"op": "node", "id": rid(scenario, owner, "node", i), "labels": [label], "props": props}
 
 
-def edge_op(scenario: str, writer: str, i: int, src: str, dst: str, *, rev: int = 0,
-            owner: str | None = None) -> dict[str, Any]:
+def edge_op(
+    scenario: str,
+    writer: str,
+    i: int,
+    src: str,
+    dst: str,
+    *,
+    rev: int = 0,
+    owner: str | None = None,
+) -> dict[str, Any]:
     owner = owner or writer
     props = {"scenario": scenario, "owner": owner, "i": i, "rev": rev, "by": writer}
-    return {"op": "edge", "id": rid(scenario, owner, "edge", i), "type": "RELATES_TO",
-            "from": src, "to": dst, "props": props}
+    return {
+        "op": "edge",
+        "id": rid(scenario, owner, "edge", i),
+        "type": "RELATES_TO",
+        "from": src,
+        "to": dst,
+        "props": props,
+    }
 
 
 def read_journals(*writers: Writer) -> list[dict[str, Any]]:
@@ -360,7 +463,9 @@ def raw_scan(store: Path) -> dict[str, Any]:
             if not p.is_file():
                 continue
             canon = (len(p.name) == 8 and p.name.endswith(".jsonl")) or p.name in (
-                "deleted.jsonl", "labels.json")
+                "deleted.jsonl",
+                "labels.json",
+            )
             if not canon:
                 noncanonical.append(f"{sub}/{p.name}")
             if kind is None:
@@ -373,12 +478,18 @@ def raw_scan(store: Path) -> dict[str, Any]:
                     ids[kind].add(obj["id"])
                 except Exception:
                     bad_lines += 1
-    return {"raw_node_ids": len(ids["node"]), "raw_edge_ids": len(ids["edge"]),
-            "noncanonical_files": noncanonical, "raw_bad_lines": bad_lines,
-            "_ids": ids}
+    return {
+        "raw_node_ids": len(ids["node"]),
+        "raw_edge_ids": len(ids["edge"]),
+        "noncanonical_files": noncanonical,
+        "raw_bad_lines": bad_lines,
+        "_ids": ids,
+    }
 
 
-def check_replica(w: Writer, entries: list[dict[str, Any]], *, run_doctor: bool = True) -> dict[str, Any]:
+def check_replica(
+    w: Writer, entries: list[dict[str, Any]], *, run_doctor: bool = True
+) -> dict[str, Any]:
     """Open a copy of the replica the way a user would and compare to the journal."""
     from graph_ted_db.store import GraphStore
 
@@ -418,27 +529,37 @@ def check_replica(w: Writer, entries: list[dict[str, Any]], *, run_doctor: bool 
         if key not in exp:
             unexpected.append(key)
     hidden = [k for k in lost if k[1] in raw["_ids"][k[0]]]
-    res.update({
-        "expected_live": sum(1 for e in exp.values() if e["hash"] is not None),
-        "live_nodes": len(nodes), "live_edges": len(edges),
-        "lost": len(lost), "lost_but_on_disk": len(hidden),
-        "stale_version": len(stale), "corrupt": len(corrupt), "unexpected": len(unexpected),
-        "deleted_but_live": len(resurrected),
-        "skipped_lines": len(store.skipped_lines),
-        "raw_bad_lines": raw["raw_bad_lines"],
-        "noncanonical_files": raw["noncanonical_files"][:50],
-        "noncanonical_count": len(raw["noncanonical_files"]),
-        "graph_conflict_copies": len(store._conflict_copy_paths()),
-        "fingerprint": hashlib.sha256(json.dumps(sorted(
-            [f"{k[0]}:{k[1]}:{v}" for k, v in live.items()])).encode()).hexdigest()[:16],
-    })
+    res.update(
+        {
+            "expected_live": sum(1 for e in exp.values() if e["hash"] is not None),
+            "live_nodes": len(nodes),
+            "live_edges": len(edges),
+            "lost": len(lost),
+            "lost_but_on_disk": len(hidden),
+            "stale_version": len(stale),
+            "corrupt": len(corrupt),
+            "unexpected": len(unexpected),
+            "deleted_but_live": len(resurrected),
+            "skipped_lines": len(store.skipped_lines),
+            "raw_bad_lines": raw["raw_bad_lines"],
+            "noncanonical_files": raw["noncanonical_files"][:50],
+            "noncanonical_count": len(raw["noncanonical_files"]),
+            "graph_conflict_copies": len(store._conflict_copy_paths()),
+            "fingerprint": hashlib.sha256(
+                json.dumps(sorted([f"{k[0]}:{k[1]}:{v}" for k, v in live.items()])).encode()
+            ).hexdigest()[:16],
+        }
+    )
     if run_doctor:
         rep = store.doctor()
-        res["doctor"] = {"torn_repaired": len(rep.torn_repaired), "tmp_removed": len(rep.tmp_removed),
-                         "dangling_found": len(rep.dangling_edges_found),
-                         "dangling_tombstoned": len(rep.dangling_edges_tombstoned),
-                         "skipped_lines": len(rep.skipped_lines),
-                         "conflict_copies": len(rep.conflict_copies)}
+        res["doctor"] = {
+            "torn_repaired": len(rep.torn_repaired),
+            "tmp_removed": len(rep.tmp_removed),
+            "dangling_found": len(rep.dangling_edges_found),
+            "dangling_tombstoned": len(rep.dangling_edges_tombstoned),
+            "skipped_lines": len(rep.skipped_lines),
+            "conflict_copies": len(rep.conflict_copies),
+        }
     shutil.rmtree(scratch, ignore_errors=True)
     return res
 
@@ -453,8 +574,15 @@ def converge(*writers: Writer, rounds: int = 3) -> list[int]:
 
 def verdict(checks: list[dict[str, Any]]) -> dict[str, Any]:
     fps = {c.get("fingerprint") for c in checks}
-    keys = ("lost", "lost_but_on_disk", "stale_version", "corrupt", "unexpected", "deleted_but_live",
-            "skipped_lines")
+    keys = (
+        "lost",
+        "lost_but_on_disk",
+        "stale_version",
+        "corrupt",
+        "unexpected",
+        "deleted_but_live",
+        "skipped_lines",
+    )
     agg = {k: max(c.get(k, 0) for c in checks) for k in keys}
     agg["all_open"] = all(c.get("opens") for c in checks)
     agg["replicas_identical"] = len(fps) == 1
@@ -479,7 +607,9 @@ def setup_pair(cfg: Config, scenario: str) -> tuple[Writer, Writer]:
     return a, b
 
 
-def finish(name: str, a: Writer, b: Writer, notes: dict[str, Any], *, converge_rounds: int = 3) -> dict[str, Any]:
+def finish(
+    name: str, a: Writer, b: Writer, notes: dict[str, Any], *, converge_rounds: int = 3
+) -> dict[str, Any]:
     rcs = converge(a, b, rounds=converge_rounds)
     entries = read_journals(a, b)
     checks = [check_replica(a, entries), check_replica(b, entries)]
@@ -488,19 +618,42 @@ def finish(name: str, a: Writer, b: Writer, notes: dict[str, Any], *, converge_r
         # Record why bisync stopped, then try the manual recovery a user would
         # be told to run (--force past the delete safety check), and re-check.
         notes["stuck_writers"] = stuck
-        notes["stuck_reason"] = sorted({next((l.split("ERROR :", 1)[-1].strip()[:120]
-                                              for l in w.sync_log[-1]["out"].splitlines() if "ERROR" in l), "?")
-                                        for w in (a, b) if w.name in stuck})
+        notes["stuck_reason"] = sorted(
+            {
+                next(
+                    (
+                        l.split("ERROR :", 1)[-1].strip()[:120]
+                        for l in w.sync_log[-1]["out"].splitlines()
+                        if "ERROR" in l
+                    ),
+                    "?",
+                )
+                for w in (a, b)
+                if w.name in stuck
+            }
+        )
         for _ in range(2):
             for w in (a, b):
                 w.sync(["--force"])
-        after = [check_replica(a, entries, run_doctor=False), check_replica(b, entries, run_doctor=False)]
+        after = [
+            check_replica(a, entries, run_doctor=False),
+            check_replica(b, entries, run_doctor=False),
+        ]
         notes["after_force_verdict"] = verdict(after)
-    return {"scenario": name, "journaled_ops": len(entries), "converge_rcs": rcs,
-            "checks": checks, "verdict": verdict(checks), "notes": notes,
-            "sync_failures": [{k: v for k, v in s.items() if k != "_full"}
-                              for s in a.sync_log + b.sync_log if s["rc"] not in (0, None)][:5],
-            "conflict_lines": _conflict_lines(a, b)}
+    return {
+        "scenario": name,
+        "journaled_ops": len(entries),
+        "converge_rcs": rcs,
+        "checks": checks,
+        "verdict": verdict(checks),
+        "notes": notes,
+        "sync_failures": [
+            {k: v for k, v in s.items() if k != "_full"}
+            for s in a.sync_log + b.sync_log
+            if s["rc"] not in (0, None)
+        ][:5],
+        "conflict_lines": _conflict_lines(a, b),
+    }
 
 
 def _conflict_lines(*ws: Writer) -> list[str]:
@@ -520,9 +673,11 @@ def sc1_sequential(cfg: Config, name: str = "s1_sequential") -> dict[str, Any]:
     a.sync()
     b.sync()
     ids_a = [rid(name, "A", "node", i) for i in range(50)]
-    b.write([node_op(name, "B", i) for i in range(50)]
-            + [edge_op(name, "B", i, ids_a[i], rid(name, "B", "node", i)) for i in range(50)]
-            + [node_op(name, "B", i, rev=1, owner="A") for i in range(10)])
+    b.write(
+        [node_op(name, "B", i) for i in range(50)]
+        + [edge_op(name, "B", i, ids_a[i], rid(name, "B", "node", i)) for i in range(50)]
+        + [node_op(name, "B", i, rev=1, owner="A") for i in range(10)]
+    )
     b.sync()
     a.sync()
     a.write([node_op(name, "A", i, rev=2, owner="B") for i in range(10)], batch=10)
@@ -530,9 +685,14 @@ def sc1_sequential(cfg: Config, name: str = "s1_sequential") -> dict[str, Any]:
     b.sync()
     entries = read_journals(a, b)
     checks = [check_replica(a, entries), check_replica(b, entries)]
-    return {"scenario": name, "journaled_ops": len(entries), "checks": checks,
-            "verdict": verdict(checks), "notes": {"desc": "A writes, syncs; B syncs, writes, syncs; A syncs"},
-            "conflict_lines": _conflict_lines(a, b)}
+    return {
+        "scenario": name,
+        "journaled_ops": len(entries),
+        "checks": checks,
+        "verdict": verdict(checks),
+        "notes": {"desc": "A writes, syncs; B syncs, writes, syncs; A syncs"},
+        "conflict_lines": _conflict_lines(a, b),
+    }
 
 
 def _sync_loop(ws: list[tuple[Writer, float]], until: callable) -> None:
@@ -569,13 +729,24 @@ def _sync_loop(ws: list[tuple[Writer, float]], until: callable) -> None:
 
 def sc2_concurrent(cfg: Config, name: str = "s2_concurrent", n: int = 300) -> dict[str, Any]:
     a, b = setup_pair(cfg, name)
-    pa = a.write([op for i in range(n) for op in (node_op(name, "A", i), {"op": "sleep", "s": 0.01})],
-                 background=True)
-    pb = b.write([op for i in range(n) for op in (node_op(name, "B", i), {"op": "sleep", "s": 0.01})],
-                 background=True)
+    pa = a.write(
+        [op for i in range(n) for op in (node_op(name, "A", i), {"op": "sleep", "s": 0.01})],
+        background=True,
+    )
+    pb = b.write(
+        [op for i in range(n) for op in (node_op(name, "B", i), {"op": "sleep", "s": 0.01})],
+        background=True,
+    )
     _sync_loop([(a, 1.0), (b, 1.3)], lambda: pa.poll() is not None and pb.poll() is not None)
-    return finish(name, a, b, {"desc": f"A and B each write {n} distinct nodes while bisync runs every ~1s",
-                               "syncs": len(a.sync_log) + len(b.sync_log)})
+    return finish(
+        name,
+        a,
+        b,
+        {
+            "desc": f"A and B each write {n} distinct nodes while bisync runs every ~1s",
+            "syncs": len(a.sync_log) + len(b.sync_log),
+        },
+    )
 
 
 def sc3_offline(cfg: Config, name: str = "s3_offline", n: int = 200) -> dict[str, Any]:
@@ -585,16 +756,27 @@ def sc3_offline(cfg: Config, name: str = "s3_offline", n: int = 200) -> dict[str
     a.sync()
     b.sync()
     # B goes offline. Both write; A keeps syncing.
-    a_plan = [node_op(name, "A", i) for i in range(n)] + [node_op(name, "A", i, rev=1, owner="S") for i in range(20)]
-    b_plan = ([node_op(name, "B", i) for i in range(n)]
-              + [node_op(name, "B", i, rev=2, owner="S") for i in range(20, 30)]
-              + [{"op": "del_node", "id": rid(name, "S", "node", i)} for i in range(30, 40)])
+    a_plan = [node_op(name, "A", i) for i in range(n)] + [
+        node_op(name, "A", i, rev=1, owner="S") for i in range(20)
+    ]
+    b_plan = (
+        [node_op(name, "B", i) for i in range(n)]
+        + [node_op(name, "B", i, rev=2, owner="S") for i in range(20, 30)]
+        + [{"op": "del_node", "id": rid(name, "S", "node", i)} for i in range(30, 40)]
+    )
     for chunk in range(4):
         a.write(a_plan[chunk::4], batch=10)
         a.sync()
     b.write(b_plan, batch=10)
     # reconnect
-    return finish(name, a, b, {"desc": f"B offline while A writes {n}+20 edits (syncing) and B writes {n}+10 edits+10 deletes; B reconnects"})
+    return finish(
+        name,
+        a,
+        b,
+        {
+            "desc": f"B offline while A writes {n}+20 edits (syncing) and B writes {n}+10 edits+10 deletes; B reconnects"
+        },
+    )
 
 
 def sc4_large(cfg: Config, name: str = "s4_large", n: int = 4000, ne: int = 2000) -> dict[str, Any]:
@@ -602,32 +784,60 @@ def sc4_large(cfg: Config, name: str = "s4_large", n: int = 4000, ne: int = 2000
     plans = {}
     for w in ("A", "B"):
         ops = [node_op(name, w, i) for i in range(n)]
-        ops += [edge_op(name, w, i, rid(name, w, "node", i), rid(name, w, "node", (i * 7 + 1) % n))
-                for i in range(ne)]
+        ops += [
+            edge_op(name, w, i, rid(name, w, "node", i), rid(name, w, "node", (i * 7 + 1) % n))
+            for i in range(ne)
+        ]
         plans[w] = ops
     pa = a.write(plans["A"], batch=100, background=True)
     pb = b.write(plans["B"], batch=100, background=True)
     _sync_loop([(a, 1.0), (b, 1.0)], lambda: pa.poll() is not None and pb.poll() is not None)
-    return finish(name, a, b, {"desc": f"A and B each write {n} nodes + {ne} edges in 100-record transactions while syncing every ~1s",
-                               "syncs": len(a.sync_log) + len(b.sync_log)})
+    return finish(
+        name,
+        a,
+        b,
+        {
+            "desc": f"A and B each write {n} nodes + {ne} edges in 100-record transactions while syncing every ~1s",
+            "syncs": len(a.sync_log) + len(b.sync_log),
+        },
+    )
 
 
 def sc5_same_record(cfg: Config, name: str = "s5_same_record", rounds: int = 10) -> dict[str, Any]:
     a, b = setup_pair(cfg, name)
     base = [node_op(name, "S", i) for i in range(rounds)]
     base += [node_op(name, "S", 1000 + i) for i in range(rounds)]
-    base += [edge_op(name, "S", i, rid(name, "S", "node", i), rid(name, "S", "node", 1000 + i))
-             for i in range(rounds)]
+    base += [
+        edge_op(name, "S", i, rid(name, "S", "node", i), rid(name, "S", "node", 1000 + i))
+        for i in range(rounds)
+    ]
     a.write(base, batch=len(base))
     a.sync()
     b.sync()
     for r in range(rounds):
         src, dst = rid(name, "S", "node", r), rid(name, "S", "node", 1000 + r)
-        a.write([node_op(name, "A", r, rev=10, owner="S"), edge_op(name, "A", r, src, dst, rev=10, owner="S")], batch=2)
-        b.write([node_op(name, "B", r, rev=20, owner="S"), edge_op(name, "B", r, src, dst, rev=20, owner="S")], batch=2)
+        a.write(
+            [
+                node_op(name, "A", r, rev=10, owner="S"),
+                edge_op(name, "A", r, src, dst, rev=10, owner="S"),
+            ],
+            batch=2,
+        )
+        b.write(
+            [
+                node_op(name, "B", r, rev=20, owner="S"),
+                edge_op(name, "B", r, src, dst, rev=20, owner="S"),
+            ],
+            batch=2,
+        )
         a.sync()
         b.sync()
-    return finish(name, a, b, {"desc": f"{rounds} rounds: A and B edit the same node and the same edge between syncs"})
+    return finish(
+        name,
+        a,
+        b,
+        {"desc": f"{rounds} rounds: A and B edit the same node and the same edge between syncs"},
+    )
 
 
 def sc6a_kill_writer(cfg: Config, name: str = "s6a_kill_writer", trials: int = 6) -> dict[str, Any]:
@@ -648,23 +858,49 @@ def sc6a_kill_writer(cfg: Config, name: str = "s6a_kill_writer", trials: int = 6
         wal_bytes = sum(p.stat().st_size for p in wal)
         # A reopens (WAL replay), syncs again.
         from graph_ted_db.store import GraphStore
+
         GraphStore.open(a.store, data_dir=a.data)
         a.sync()
         b.sync()
-        trial_notes.append({"trial": t, "b_before_a_reopen": {k: mid_b.get(k) for k in (
-            "opens", "lost", "unexpected", "skipped_lines", "raw_bad_lines", "live_nodes")},
-            "a_wal_bytes_pending": wal_bytes})
-    res = finish(name, a, b, {"desc": f"{trials} trials: SIGKILL A mid-batch (200-record txns), A syncs immediately, B syncs and opens, then A reopens and syncs",
-                              "trials": trial_notes})
+        trial_notes.append(
+            {
+                "trial": t,
+                "b_before_a_reopen": {
+                    k: mid_b.get(k)
+                    for k in (
+                        "opens",
+                        "lost",
+                        "unexpected",
+                        "skipped_lines",
+                        "raw_bad_lines",
+                        "live_nodes",
+                    )
+                },
+                "a_wal_bytes_pending": wal_bytes,
+            }
+        )
+    res = finish(
+        name,
+        a,
+        b,
+        {
+            "desc": f"{trials} trials: SIGKILL A mid-batch (200-record txns), A syncs immediately, B syncs and opens, then A reopens and syncs",
+            "trials": trial_notes,
+        },
+    )
     # Journal lines are written after commit, so a killed writer's last
     # transaction can be present without a journal entry ("unexpected").
     # After WAL replay every trial must hold whole 200-record transactions.
     from graph_ted_db.store import GraphStore
+
     for w in (a, b):
         scratch = Path(tempfile.mkdtemp(dir=w.base))
         shutil.copytree(w.store, scratch / "s")
         live = {n.id for n in GraphStore.open(scratch / "s", data_dir=scratch / "d").iter_nodes()}
-        per_trial = [sum(1 for i in range(3000) if rid(name, "A", "node", t * 10000 + i) in live) for t in range(trials)]
+        per_trial = [
+            sum(1 for i in range(3000) if rid(name, "A", "node", t * 10000 + i) in live)
+            for t in range(trials)
+        ]
         res["notes"][f"{w.name}_present_per_trial"] = per_trial
         res["notes"][f"{w.name}_whole_transactions"] = all(c % 200 == 0 for c in per_trial)
         shutil.rmtree(scratch, ignore_errors=True)
@@ -674,29 +910,46 @@ def sc6a_kill_writer(cfg: Config, name: str = "s6a_kill_writer", trials: int = 6
 def sc6b_kill_rclone(cfg: Config, name: str = "s6b_kill_rclone", n: int = 6000) -> dict[str, Any]:
     a, b = setup_pair(cfg, name)
     a.write([node_op(name, "A", i) for i in range(n)], batch=500)
-    notes: dict[str, Any] = {"desc": f"A writes {n} nodes; A's bisync is SIGKILLed mid-upload (bwlimit); B writes; "
-                                     "then B's bisync is SIGKILLed mid-download; both recover"}
+    notes: dict[str, Any] = {
+        "desc": f"A writes {n} nodes; A's bisync is SIGKILLed mid-upload (bwlimit); B writes; "
+        "then B's bisync is SIGKILLed mid-download; both recover"
+    }
     p = a.start_sync(["--bwlimit", "300k"])
     time.sleep(2.0)
     p.send_signal(signal.SIGKILL)
     p.wait()
     notes["a_lock_left_behind"] = len(a.lock_files())
-    remote_list = subprocess.run([cfg.rclone, "lsf", "-R", a.remote], capture_output=True, text=True).stdout
-    notes["remote_files_after_kill"] = len([l for l in remote_list.splitlines() if l.endswith(".jsonl")])
-    notes["remote_partial_files"] = [l for l in remote_list.splitlines() if "partial" in l or l.endswith(".tmp")]
+    remote_list = subprocess.run(
+        [cfg.rclone, "lsf", "-R", a.remote], capture_output=True, text=True
+    ).stdout
+    notes["remote_files_after_kill"] = len(
+        [l for l in remote_list.splitlines() if l.endswith(".jsonl")]
+    )
+    notes["remote_partial_files"] = [
+        l for l in remote_list.splitlines() if "partial" in l or l.endswith(".tmp")
+    ]
     b.write([node_op(name, "B", i) for i in range(200)], batch=50)
     notes["b_sync_rc"] = b.sync()
     notes["a_retry_rc_with_stale_lock"] = a.sync()
-    notes["a_retry_error"] = next((l.split("NOTICE:", 1)[-1].strip()[:160] for l in a.sync_log[-1]["out"].splitlines()
-                                   if "Failed to bisync" in l), None)
+    notes["a_retry_error"] = next(
+        (
+            l.split("NOTICE:", 1)[-1].strip()[:160]
+            for l in a.sync_log[-1]["out"].splitlines()
+            if "Failed to bisync" in l
+        ),
+        None,
+    )
     # Documented recovery: remove the stale lock (or wait for --max-lock), then rerun with --recover.
     for lck in a.lock_files():
         lck.unlink()
     notes["a_rc_after_lock_removed"] = a.sync()
     b.sync()
     entries = read_journals(a, b)
-    notes["b_after_a_recovery"] = {k: v for k, v in check_replica(b, entries, run_doctor=False).items()
-                                   if k in ("opens", "lost", "corrupt", "skipped_lines", "live_nodes")}
+    notes["b_after_a_recovery"] = {
+        k: v
+        for k, v in check_replica(b, entries, run_doctor=False).items()
+        if k in ("opens", "lost", "corrupt", "skipped_lines", "live_nodes")
+    }
     # Now kill B mid-download of a fresh large change from A.
     a.write([node_op(name, "A", 100000 + i) for i in range(n)], batch=500)
     a.sync()
@@ -704,16 +957,23 @@ def sc6b_kill_rclone(cfg: Config, name: str = "s6b_kill_rclone", n: int = 6000) 
     time.sleep(1.5)
     p.send_signal(signal.SIGKILL)
     p.wait()
-    notes["local_b_partial_files"] = [str(x.relative_to(b.store)) for x in b.store.rglob("*") if "partial" in x.name]
+    notes["local_b_partial_files"] = [
+        str(x.relative_to(b.store)) for x in b.store.rglob("*") if "partial" in x.name
+    ]
     entries = read_journals(a, b)
-    notes["b_open_after_kill"] = {k: v for k, v in check_replica(b, entries, run_doctor=False).items()
-                                  if k in ("opens", "lost", "corrupt", "skipped_lines", "raw_bad_lines", "live_nodes")}
+    notes["b_open_after_kill"] = {
+        k: v
+        for k, v in check_replica(b, entries, run_doctor=False).items()
+        if k in ("opens", "lost", "corrupt", "skipped_lines", "raw_bad_lines", "live_nodes")
+    }
     for lck in b.lock_files():
         lck.unlink()
     return finish(name, a, b, notes)
 
 
-def sc7_open_during_sync(cfg: Config, name: str = "s7_open_during_sync", n: int = 6000) -> dict[str, Any]:
+def sc7_open_during_sync(
+    cfg: Config, name: str = "s7_open_during_sync", n: int = 6000
+) -> dict[str, Any]:
     from graph_ted_db.store import GraphStore
 
     a, b = setup_pair(cfg, name)
@@ -728,15 +988,23 @@ def sc7_open_during_sync(cfg: Config, name: str = "s7_open_during_sync", n: int 
         try:
             store = GraphStore.open(b.store, data_dir=b.data)
             cnt = sum(1 for _ in store.iter_nodes())
-            samples.append({"t": round(time.time() - t0, 1), "live_nodes": cnt,
-                            "skipped": len(store.skipped_lines)})
+            samples.append(
+                {
+                    "t": round(time.time() - t0, 1),
+                    "live_nodes": cnt,
+                    "skipped": len(store.skipped_lines),
+                }
+            )
         except Exception as exc:  # noqa: BLE001
             samples.append({"t": round(time.time() - t0, 1), "error": repr(exc)})
     p.wait()
     after = sum(1 for _ in store.iter_nodes()) if store else None
-    notes = {"desc": f"B opens and reads the store repeatedly while bisync downloads {n} nodes (bwlimit)",
-             "samples": samples[:30], "open_store_after_sync_live_nodes": after,
-             "sync_rc": p.returncode}
+    notes = {
+        "desc": f"B opens and reads the store repeatedly while bisync downloads {n} nodes (bwlimit)",
+        "samples": samples[:30],
+        "open_store_after_sync_live_nodes": after,
+        "sync_rc": p.returncode,
+    }
     return finish(name, a, b, notes)
 
 
@@ -762,9 +1030,15 @@ def sc8_native_conflict_names(cfg: Config, name: str = "s8_native_names") -> dic
         fork = shard.with_name(pattern.format(s=shard.stem))
         os.replace(shard, fork)
         s2 = GraphStore.open(root, data_dir=base / f"{label}-data2")
-        results[label] = {"file": "nodes/" + pattern.format(s="NN"), "record_visible": s2.get_node(n.id) is not None}
-    return {"scenario": name, "notes": {"desc": "canonical shard renamed to each client's conflict-copy pattern"},
-            "results": results}
+        results[label] = {
+            "file": "nodes/" + pattern.format(s="NN"),
+            "record_visible": s2.get_node(n.id) is not None,
+        }
+    return {
+        "scenario": name,
+        "notes": {"desc": "canonical shard renamed to each client's conflict-copy pattern"},
+        "results": results,
+    }
 
 
 def sc9_doctor_partial(cfg: Config, name: str = "s9_doctor_partial", n: int = 50) -> dict[str, Any]:
@@ -773,22 +1047,41 @@ def sc9_doctor_partial(cfg: Config, name: str = "s9_doctor_partial", n: int = 50
 
     a, b = setup_pair(cfg, name)
     ops = [node_op(name, "A", i) for i in range(n)]
-    ops += [edge_op(name, "A", i, rid(name, "A", "node", i), rid(name, "A", "node", (i + 1) % n)) for i in range(n)]
+    ops += [
+        edge_op(name, "A", i, rid(name, "A", "node", i), rid(name, "A", "node", (i + 1) % n))
+        for i in range(n)
+    ]
     a.write(ops, batch=len(ops))
     a.sync()
     # Partial arrival: only edges/ and meta/ reach B first (a sync interrupted, or a slow client).
-    subprocess.run([cfg.rclone, "copy", a.remote, str(b.store), "--include", "edges/**",
-                    "--include", "meta/**"], check=True, capture_output=True)
+    subprocess.run(
+        [
+            cfg.rclone,
+            "copy",
+            a.remote,
+            str(b.store),
+            "--include",
+            "edges/**",
+            "--include",
+            "meta/**",
+        ],
+        check=True,
+        capture_output=True,
+    )
     fix = os.environ.get("GTDB_SYNC_DOCTOR_FIX") == "1"
     rep = GraphStore.open(b.store, data_dir=b.data).doctor(fix=fix)
-    notes = {"desc": f"A writes {n} nodes + {n} edges in one transaction; B receives edges before nodes and runs "
-                     f"doctor{' --fix' if fix else ''}",
-             "doctor_dangling_found": len(rep.dangling_edges_found),
-             "doctor_dangling_tombstoned": len(rep.dangling_edges_tombstoned)}
+    notes = {
+        "desc": f"A writes {n} nodes + {n} edges in one transaction; B receives edges before nodes and runs "
+        f"doctor{' --fix' if fix else ''}",
+        "doctor_dangling_found": len(rep.dangling_edges_found),
+        "doctor_dangling_tombstoned": len(rep.dangling_edges_tombstoned),
+    }
     return finish(name, a, b, notes)
 
 
-def sc10_delete_safety(cfg: Config, name: str = "s10_delete_safety", n: int = 3000) -> dict[str, Any]:
+def sc10_delete_safety(
+    cfg: Config, name: str = "s10_delete_safety", n: int = 3000
+) -> dict[str, Any]:
     """Both writers touch most shards between syncs; bisync's delete safety check trips."""
     a, b = setup_pair(cfg, name)
     a.write([node_op(name, "A", i) for i in range(n)], batch=500)
@@ -796,19 +1089,29 @@ def sc10_delete_safety(cfg: Config, name: str = "s10_delete_safety", n: int = 30
     b.sync()
     a.write([node_op(name, "A", 10000 + i) for i in range(n)], batch=500)
     b.write([node_op(name, "B", i) for i in range(n)], batch=500)
-    notes: dict[str, Any] = {"desc": f"A and B each write {n} nodes (touching most shards) between syncs",
-                             "rcs": {"B": b.sync(), "A": a.sync()}}
+    notes: dict[str, Any] = {
+        "desc": f"A and B each write {n} nodes (touching most shards) between syncs",
+        "rcs": {"B": b.sync(), "A": a.sync()},
+    }
     notes["retry_rcs"] = [(a.sync(), b.sync()) for _ in range(2)]
     entries = read_journals(a, b)
-    notes["before_force_verdict"] = verdict([check_replica(a, entries, run_doctor=False),
-                                             check_replica(b, entries, run_doctor=False)])
+    notes["before_force_verdict"] = verdict(
+        [check_replica(a, entries, run_doctor=False), check_replica(b, entries, run_doctor=False)]
+    )
     return finish(name, a, b, notes, converge_rounds=1)
 
 
 SCENARIOS = {
-    "s1": sc1_sequential, "s2": sc2_concurrent, "s3": sc3_offline, "s4": sc4_large,
-    "s5": sc5_same_record, "s6a": sc6a_kill_writer, "s6b": sc6b_kill_rclone,
-    "s7": sc7_open_during_sync, "s8": sc8_native_conflict_names, "s9": sc9_doctor_partial,
+    "s1": sc1_sequential,
+    "s2": sc2_concurrent,
+    "s3": sc3_offline,
+    "s4": sc4_large,
+    "s5": sc5_same_record,
+    "s6a": sc6a_kill_writer,
+    "s6b": sc6b_kill_rclone,
+    "s7": sc7_open_during_sync,
+    "s8": sc8_native_conflict_names,
+    "s9": sc9_doctor_partial,
     "s10": sc10_delete_safety,
 }
 
@@ -822,15 +1125,21 @@ def cmd_run(args: argparse.Namespace) -> int:
     random.seed(args.seed)
     names = args.scenarios or list(SCENARIOS)
     out_path = cfg.results / f"{cfg.run_id}.json"
-    report: dict[str, Any] = {"run_id": cfg.run_id, "extra_flags": cfg.extra_flags,
-                              "rclone": subprocess.run([cfg.rclone, "version"], capture_output=True, text=True).stdout.splitlines()[:1],
-                              "results": []}
+    report: dict[str, Any] = {
+        "run_id": cfg.run_id,
+        "extra_flags": cfg.extra_flags,
+        "rclone": subprocess.run(
+            [cfg.rclone, "version"], capture_output=True, text=True
+        ).stdout.splitlines()[:1],
+        "results": [],
+    }
     for key in names:
         t0 = time.time()
         try:
             res = SCENARIOS[key](cfg)
         except Exception as exc:  # noqa: BLE001
             import traceback
+
             res = {"scenario": key, "error": repr(exc), "trace": traceback.format_exc()[-3000:]}
         res["secs"] = round(time.time() - t0, 1)
         report["results"].append(res)
@@ -842,7 +1151,9 @@ def cmd_run(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     sub = p.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("run")
     r.add_argument("scenarios", nargs="*", choices=[*SCENARIOS, []] and list(SCENARIOS))

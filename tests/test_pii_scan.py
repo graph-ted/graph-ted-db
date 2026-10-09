@@ -28,7 +28,10 @@ def rules_hit(text: str, rules=None) -> set[str]:
     [
         ("see https://onedrive.live.com/?id=ABC", "onedrive-share-link"),
         ("short link https://1drv.ms/f/s!abc", "onedrive-share-link"),
-        ("https://contoso-my.sharepoint.com/personal/jdoe_contoso_com/Documents", "sharepoint-personal-path"),
+        (
+            "https://contoso-my.sharepoint.com/personal/jdoe_contoso_com/Documents",
+            "sharepoint-personal-path",
+        ),
         ("graph at ~/OneDrive/graph-ted/graph", "onedrive-local-path"),
         (r"D:\OneDrive - Contoso\graph", "onedrive-local-path"),
         ("mounted at /mnt/onedrive-jdoe/graph", "onedrive-mount-path"),
@@ -64,7 +67,10 @@ def test_generic_rules_allow(text: str) -> None:
 def test_local_terms_from_env_are_reported_by_index_only() -> None:
     rules = pii.load_local_rules(
         root=Path("/nonexistent"),
-        env={"GTDB_PII_TERMS": "Jane Placeholder,jane@example.org", "GTDB_PII_REMOTES": "examplecloud"},
+        env={
+            "GTDB_PII_TERMS": "Jane Placeholder,jane@example.org",
+            "GTDB_PII_REMOTES": "examplecloud",
+        },
     )
     findings = pii.scan_text(
         "notes.md",
@@ -72,11 +78,15 @@ def test_local_terms_from_env_are_reported_by_index_only() -> None:
         rules,
     )
     assert [(f.line, f.rule) for f in findings] == [(1, "local-term#1"), (2, "local-remote#1")]
-    assert all("placeholder" not in str(f).lower() and "examplecloud" not in str(f) for f in findings)
+    assert all(
+        "placeholder" not in str(f).lower() and "examplecloud" not in str(f) for f in findings
+    )
 
 
 def test_local_terms_file(tmp_path: Path) -> None:
-    (tmp_path / pii.LOCAL_TERMS_FILE).write_text("# comment\nremote:mycloud\nterm:someone@example.net\n")
+    (tmp_path / pii.LOCAL_TERMS_FILE).write_text(
+        "# comment\nremote:mycloud\nterm:someone@example.net\n"
+    )
     rules = pii.load_local_rules(root=tmp_path, env={})
     hits = {f.rule for f in pii.scan_text("a.txt", "mycloud:x\nSomeone@Example.net\n", rules)}
     assert hits == {"local-remote#1", "local-term#1"}

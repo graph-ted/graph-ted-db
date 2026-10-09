@@ -290,7 +290,9 @@ def test_permalinks_are_a_hidden_link_icon_until_hover_or_focus():
     assert ".md-typeset :focus-within > .headerlink," in block
     assert ".md-typeset .headerlink:focus-visible {" in block
     # The icon is an embedded SVG, not the pilcrow and not a remote load.
-    match = re.search(r'--gt-permalink-icon: url\("data:image/svg\+xml;base64,([A-Za-z0-9+/=]+)"\);', base)
+    match = re.search(
+        r'--gt-permalink-icon: url\("data:image/svg\+xml;base64,([A-Za-z0-9+/=]+)"\);', base
+    )
     assert match, base
     svg = base64.b64decode(match.group(1)).decode("utf-8")
     assert svg.startswith("<svg") and "<path" in svg

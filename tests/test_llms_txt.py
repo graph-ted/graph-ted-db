@@ -46,7 +46,9 @@ def test_render_llms_lists_pages_and_full_text():
     assert "graph_ted_db" in full
     assert "sqlite" not in index.lower()
     assert "sqlite" not in full.lower()
-    fenced = hook.summary_of("# Title\n\n```\npip install example\n```\n\nInstall from a checkout.\n")
+    fenced = hook.summary_of(
+        "# Title\n\n```\npip install example\n```\n\nInstall from a checkout.\n"
+    )
     assert fenced == "Install from a checkout."
 
 

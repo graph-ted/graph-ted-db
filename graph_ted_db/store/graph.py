@@ -480,9 +480,7 @@ class GraphStore(_GraphStoreAliases):
     ) -> list[dict[str, Any]]:
         """Run an openCypher query (the supported subset). See docs/cypher.md."""
         with self._lock():
-            return self._execute_unlocked(
-                cypher, parameters or {}, updated_by=updated_by
-            )
+            return self._execute_unlocked(cypher, parameters or {}, updated_by=updated_by)
 
     def execute_many(
         self,
@@ -495,9 +493,7 @@ class GraphStore(_GraphStoreAliases):
             return []
         with self._lock():
             if self._tx is not None:
-                raise RuntimeError(
-                    "execute_many cannot run inside an open transaction"
-                )
+                raise RuntimeError("execute_many cannot run inside an open transaction")
             self._refresh_index_unlocked()
             self._begin_unlocked()
             try:
@@ -681,7 +677,8 @@ class GraphStore(_GraphStoreAliases):
             report.torn_repaired, report.tmp_removed = self._recover_files()
             dangling = self._dangling_edges_unlocked()
             report.dangling_edges_found = [
-                f"{edge.id} type={edge.type} from={edge.from_id} to={edge.to_id}" for edge in dangling
+                f"{edge.id} type={edge.type} from={edge.from_id} to={edge.to_id}"
+                for edge in dangling
             ]
             if dangling and fix:
                 now = format_timestamp()
@@ -1068,10 +1065,8 @@ class GraphStore(_GraphStoreAliases):
             if (
                 isinstance(current, dict)
                 and sorted(current.get("node_labels") or []) == payload["node_labels"]
-                and sorted(current.get("relationship_types") or [])
-                == payload["relationship_types"]
-                and sorted(current.get("vector_properties") or [])
-                == payload["vector_properties"]
+                and sorted(current.get("relationship_types") or []) == payload["relationship_types"]
+                and sorted(current.get("vector_properties") or []) == payload["vector_properties"]
             ):
                 return
         replace_json_file(path, payload)
@@ -1209,4 +1204,3 @@ def _wal_decode(obj: dict[str, Any]) -> tuple[str, Any] | None:
     if kind in ("delete_node", "delete_edge", "delete_vector"):
         return kind, Tombstone.from_dict(rec)
     return None
-

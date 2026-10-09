@@ -10,9 +10,7 @@ FORMAT_NAME = "graph-ted-db"
 FORMAT_VERSION = 1
 SHARD_FANOUT = 256
 
-_UUID_RE = re.compile(
-    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
-)
+_UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 _VECTOR_PROPERTY_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 
 

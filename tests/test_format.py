@@ -19,8 +19,7 @@ def test_shard_id_uses_first_uuid_byte():
 
 def test_normalize_uuid_accepts_bare_hex():
     assert (
-        normalize_uuid("550e8400e29b41d4a716446655440000")
-        == "550e8400-e29b-41d4-a716-446655440000"
+        normalize_uuid("550e8400e29b41d4a716446655440000") == "550e8400-e29b-41d4-a716-446655440000"
     )
 
 

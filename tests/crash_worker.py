@@ -20,21 +20,12 @@ def record_id(txn: int, seq: int) -> str:
 
 def _query() -> str:
     creates = [
-        (
-            f"CREATE (k{seq}:Entity "
-            f"{{uuid: $k{seq}, name: 'keep', txn: $txn, role: 'keep'}})"
-        )
+        (f"CREATE (k{seq}:Entity {{uuid: $k{seq}, name: 'keep', txn: $txn, role: 'keep'}})")
         for seq in KEEP_SEQS
     ]
-    creates.append(
-        "CREATE (d:Entity {uuid: $drop, name: 'drop', txn: $txn, role: 'drop'})"
-    )
-    creates.append(
-        "CREATE (k0)-[:RELATES_TO {uuid: $keep_edge, txn: $txn, role: 'keep'}]->(k1)"
-    )
-    creates.append(
-        "CREATE (k0)-[:RELATES_TO {uuid: $drop_edge, txn: $txn, role: 'drop'}]->(d)"
-    )
+    creates.append("CREATE (d:Entity {uuid: $drop, name: 'drop', txn: $txn, role: 'drop'})")
+    creates.append("CREATE (k0)-[:RELATES_TO {uuid: $keep_edge, txn: $txn, role: 'keep'}]->(k1)")
+    creates.append("CREATE (k0)-[:RELATES_TO {uuid: $drop_edge, txn: $txn, role: 'drop'}]->(d)")
     creates.append("DELETE d")
     return "\n".join(creates)
 

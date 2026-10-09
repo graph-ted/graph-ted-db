@@ -53,9 +53,7 @@ def clause_handler(cls: type) -> Callable:
 
 
 class Executor:
-    def __init__(
-        self, store: Any, params: dict[str, Any], updated_by: str = "cypher"
-    ) -> None:
+    def __init__(self, store: Any, params: dict[str, Any], updated_by: str = "cypher") -> None:
         self.store = store
         self.params = params
         self.updated_by = updated_by
@@ -547,9 +545,7 @@ def _end_bound(ex: Executor, row: dict, node: NodePattern) -> bool:
 def _should_scan_edges(ex: Executor, row: dict, pattern: Pattern) -> bool:
     if len(pattern.rels) != 1 or len(pattern.nodes) != 2:
         return False
-    return not _end_bound(ex, row, pattern.nodes[0]) and not _end_bound(
-        ex, row, pattern.nodes[1]
-    )
+    return not _end_bound(ex, row, pattern.nodes[0]) and not _end_bound(ex, row, pattern.nodes[1])
 
 
 def _match_edges(ex: Executor, row: dict, pattern: Pattern) -> list[dict]:
@@ -628,7 +624,6 @@ def _walk_to(
         placed2 = dict(placed)
         placed2[to_idx] = neighbor
         _expand(ex, nxt, pattern, placed2, results)
-
 
 
 _EMBED_KEYS = frozenset(
@@ -764,9 +759,7 @@ def _new_node(ex: Executor, row: dict, pattern: NodePattern) -> NodeView:
     return _persist_node(ex, view)
 
 
-def _upsert_pattern(
-    ex: Executor, row: dict, pattern: Pattern, *, create_only: bool
-) -> list[dict]:
+def _upsert_pattern(ex: Executor, row: dict, pattern: Pattern, *, create_only: bool) -> list[dict]:
     nxt = dict(row)
     nodes: list[NodeView] = []
     for node_pat in pattern.nodes:
@@ -788,9 +781,7 @@ def _upsert_pattern(
             merged = dict(existing.props)
             merged.update(extra)
             labels = tuple(dict.fromkeys(existing.labels + node_pat.labels))
-            existing = _persist_node(
-                ex, NodeView(id=existing.id, labels=labels, props=merged)
-            )
+            existing = _persist_node(ex, NodeView(id=existing.id, labels=labels, props=merged))
         if node_pat.name:
             nxt[node_pat.name] = existing
         nodes.append(existing)
@@ -810,19 +801,13 @@ def _upsert_pattern(
             rec = ex.index.edges.get(rel_uuid)
             if rec is None:
                 rec = next(
-                    (
-                        e
-                        for e in ex.index.edges.values()
-                        if e.props.get("uuid") == rel_uuid
-                    ),
+                    (e for e in ex.index.edges.values() if e.props.get("uuid") == rel_uuid),
                     None,
                 )
             if rec is not None and _rel_map_matches(rel_view(rec), rel_props):
                 existing_edge = rel_view(rec)
         if existing_edge is None and not create_only:
-            for edge, _neigh in ex.index.neighbors(
-                left.id, rel_type=rel_type, direction="out"
-            ):
+            for edge, _neigh in ex.index.neighbors(left.id, rel_type=rel_type, direction="out"):
                 ev = rel_view(edge)
                 if ev.to_id != right.id:
                     continue
@@ -885,17 +870,13 @@ def _apply_set_item(ex: Executor, row: dict, item: Any) -> dict:
             labels = target.labels
             if isinstance(extra_labels, list):
                 labels = tuple(str(x) for x in extra_labels)
-            view = _persist_node(
-                ex, NodeView(id=target.id, labels=labels, props=dict(data))
-            )
+            view = _persist_node(ex, NodeView(id=target.id, labels=labels, props=dict(data)))
             row[item.variable] = view
             return row
         if item.kind == "merge" and isinstance(target, NodeView):
             props = dict(target.props)
             props.update(data)
-            view = _persist_node(
-                ex, NodeView(id=target.id, labels=target.labels, props=props)
-            )
+            view = _persist_node(ex, NodeView(id=target.id, labels=target.labels, props=props))
             row[item.variable] = view
             return row
         if isinstance(target, RelView):
@@ -944,4 +925,3 @@ def _call_set_vector(ex: Executor, row: dict, args: tuple, *, rel: bool) -> None
     if not isinstance(record_id, str):
         return
     _store_vector(ex, record_id, prop, vec)
-

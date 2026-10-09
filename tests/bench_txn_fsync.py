@@ -123,8 +123,7 @@ def _episode_batch(episode: int) -> list[tuple[str, dict[str, object]]]:
     episodic = _uid(episode, 1)
     entities = [_uid(episode * ENTITIES + slot, 2) for slot in range(ENTITIES)]
     entity_cypher = "\n".join(
-        f"CREATE (:Entity {{uuid: $u{slot}, name: $name{slot}}})"
-        for slot in range(ENTITIES)
+        f"CREATE (:Entity {{uuid: $u{slot}, name: $name{slot}}})" for slot in range(ENTITIES)
     )
     entity_params: dict[str, object] = {}
     for slot, uuid in enumerate(entities):
@@ -233,8 +232,7 @@ def mix_record_count(episodes: int = EPISODES) -> int:
 def _report(label: str, samples: list[float]) -> None:
     millis = [round(sample * 1000, 1) for sample in samples]
     print(
-        f"{label}: median {statistics.median(samples) * 1000:.1f} ms  "
-        f"samples {millis}",
+        f"{label}: median {statistics.median(samples) * 1000:.1f} ms  samples {millis}",
         flush=True,
     )
 

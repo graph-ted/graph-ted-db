@@ -232,9 +232,7 @@ class GraphTedHandler(BaseHTTPRequestHandler):
         return payload, None
 
     def _send_json(self, status: int, payload: dict[str, Any], *, body: bool = True) -> None:
-        data = json.dumps(payload, ensure_ascii=False, default=_json_default).encode(
-            "utf-8"
-        )
+        data = json.dumps(payload, ensure_ascii=False, default=_json_default).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
@@ -285,9 +283,7 @@ def _json_default(value: object) -> object:
     return str(value)
 
 
-def _clip_rows(
-    rows: list[dict[str, Any]], max_records: int
-) -> tuple[list[dict[str, Any]], bool]:
+def _clip_rows(rows: list[dict[str, Any]], max_records: int) -> tuple[list[dict[str, Any]], bool]:
     truncated = len(rows) > max_records
     if truncated:
         rows = rows[:max_records]
@@ -372,9 +368,7 @@ def make_server(
     max_records: int = MAX_QUERY_RECORDS,
     token: str = "",
 ) -> GraphTedHTTPServer:
-    return GraphTedHTTPServer(
-        (host, port), store, max_records=max_records, token=token
-    )
+    return GraphTedHTTPServer((host, port), store, max_records=max_records, token=token)
 
 
 def serve(
@@ -388,8 +382,7 @@ def serve(
     token = token.strip() if token else ""
     if host not in LOOPBACK_HOSTS and not token:
         raise ValueError(
-            "refusing to bind off loopback without a token "
-            "(pass --token or set GRAPH_TED_DB_TOKEN)"
+            "refusing to bind off loopback without a token (pass --token or set GRAPH_TED_DB_TOKEN)"
         )
     if not logging.getLogger().handlers:
         logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -400,11 +393,7 @@ def serve(
     store.refresh_index()
     n_nodes = len(store._index.nodes) if store._index is not None else 0
     n_edges = len(store._index.edges) if store._index is not None else 0
-    auth_note = (
-        "token required except GET /health"
-        if token
-        else "no token (loopback)"
-    )
+    auth_note = "token required except GET /health" if token else "no token (loopback)"
     print(
         "graph-ted-db HTTP\n"
         f"  folder: {store.root}\n"

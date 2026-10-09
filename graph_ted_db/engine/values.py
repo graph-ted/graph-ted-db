@@ -19,6 +19,8 @@ _GRAPHITI_NODE_STRINGS = {
     "group_id": "",
     "fact": "",
 }
+
+
 def _graphiti_prop(
     props: dict[str, Any],
     key: str,

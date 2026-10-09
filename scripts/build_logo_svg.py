@@ -211,9 +211,7 @@ def build_svg(params, upem, glyphset, shaped, stroke, text, disc, only=None):
         )
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" '
-        f'viewBox="0 0 {fmt(maxx - minx)} {fmt(maxy - miny)}">'
-        + "".join(body)
-        + "</svg>\n"
+        f'viewBox="0 0 {fmt(maxx - minx)} {fmt(maxy - miny)}">' + "".join(body) + "</svg>\n"
     )
 
 
@@ -343,8 +341,10 @@ def write_overlay(png_path: Path, rendered: Image.Image, dest: Path):
     sa = np.asarray(right).astype(np.int16)
 
     def ink(arr):
-        return (arr[:, :, 1] > arr[:, :, 0] + 15) & (arr[:, :, 2] > arr[:, :, 0] + 15) & ~(
-            (arr[:, :, 0] > 230) & (arr[:, :, 1] > 230) & (arr[:, :, 2] > 230)
+        return (
+            (arr[:, :, 1] > arr[:, :, 0] + 15)
+            & (arr[:, :, 2] > arr[:, :, 0] + 15)
+            & ~((arr[:, :, 0] > 230) & (arr[:, :, 1] > 230) & (arr[:, :, 2] > 230))
         )
 
     pi, si = ink(pa), ink(sa)
@@ -362,10 +362,18 @@ def write_overlay(png_path: Path, rendered: Image.Image, dest: Path):
     w, h = panels[0].size
     sheet = Image.new("RGB", (w * 2 + 16, h * 2 + 64), (255, 255, 255))
     draw = ImageDraw.Draw(sheet)
-    draw.text((8, 6), "Side by side, 340x116 rendered, shown 2x. Left: PNG master. Right: SVG.", fill=(0, 0, 0))
+    draw.text(
+        (8, 6),
+        "Side by side, 340x116 rendered, shown 2x. Left: PNG master. Right: SVG.",
+        fill=(0, 0, 0),
+    )
     sheet.paste(panels[0], (0, 28))
     sheet.paste(panels[1], (w + 16, 28))
-    draw.text((8, 36 + h), "Onion skin (PNG only red, SVG only teal, overlap black) and difference.", fill=(0, 0, 0))
+    draw.text(
+        (8, 36 + h),
+        "Onion skin (PNG only red, SVG only teal, overlap black) and difference.",
+        fill=(0, 0, 0),
+    )
     sheet.paste(panels[2], (0, 54 + h))
     sheet.paste(panels[3], (w + 16, 54 + h))
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -396,10 +404,14 @@ def main():
     parser.add_argument("--font", type=Path, required=True, help="TTF/OTF to outline")
     parser.add_argument("--params", type=Path, default=DEFAULT_PARAMS)
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
-    parser.add_argument("--svgo", type=Path, default=None, help="svgo binary (default: lookup on PATH)")
+    parser.add_argument(
+        "--svgo", type=Path, default=None, help="svgo binary (default: lookup on PATH)"
+    )
     parser.add_argument("--no-svgo", action="store_true")
     parser.add_argument("--compare", type=Path, default=None, help="PNG master, 340x116")
-    parser.add_argument("--overlay", type=Path, default=None, help="where to write the overlay image")
+    parser.add_argument(
+        "--overlay", type=Path, default=None, help="where to write the overlay image"
+    )
     args = parser.parse_args()
 
     params = json.loads(args.params.read_text())
@@ -415,8 +427,13 @@ def main():
         print("warning: svgo not found; writing unoptimized SVG")
 
     logo = build_svg(
-        params, upem, glyphset, shaped,
-        "var(--gt-stroke, #009999)", "var(--gt-text, #009999)", "var(--gt-disc, #fff)",
+        params,
+        upem,
+        glyphset,
+        shaped,
+        "var(--gt-stroke, #009999)",
+        "var(--gt-text, #009999)",
+        "var(--gt-disc, #fff)",
     )
     light = build_svg(params, upem, glyphset, shaped, "#ffffff", "#009999", "#ffffff")
     fav = build_svg(params, upem, glyphset, shaped, "#009999", "#009999", "#ffffff", only="db")
@@ -429,7 +446,14 @@ def main():
     write_icons(fav, args.out)
     readme = render_svg(logo, README_WIDTH)
     readme.save(args.out / "logo-readme.png")
-    for name in ("logo.svg", "logo-light-stroke.svg", "favicon.svg", "favicon-32.png", "favicon.ico", "logo-readme.png"):
+    for name in (
+        "logo.svg",
+        "logo-light-stroke.svg",
+        "favicon.svg",
+        "favicon-32.png",
+        "favicon.ico",
+        "logo-readme.png",
+    ):
         print(f"{name} {(args.out / name).stat().st_size}")
 
     if args.compare:

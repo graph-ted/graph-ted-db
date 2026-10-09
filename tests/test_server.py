@@ -114,9 +114,7 @@ def test_truncation(tmp_path: Path):
     g.make_node(labels=["Entity"], props={"name": "Cara", "group_id": "default"})
     with _serve(g) as (host, port):
         conn = _conn(host, port)
-        payload = json.dumps(
-            {"query": "MATCH (n:Entity) RETURN n.name AS name"}
-        ).encode()
+        payload = json.dumps({"query": "MATCH (n:Entity) RETURN n.name AS name"}).encode()
         conn.request(
             "POST",
             "/cypher",
@@ -135,9 +133,7 @@ def test_http_cypher_sees_put_from_another_process(tmp_path: Path):
     g = _open(tmp_path)
     writer = GraphStore.open(g.root, data_dir=tmp_path / "data")
     with _serve(g) as (host, port):
-        writer.make_node(
-            labels=["Entity"], props={"name": "Bob", "group_id": "default"}
-        )
+        writer.make_node(labels=["Entity"], props={"name": "Bob", "group_id": "default"})
         conn = _conn(host, port)
         conn.request("GET", "/cypher?query=MATCH%20(n)%20RETURN%20n.name%20AS%20name")
         res = conn.getresponse()
@@ -275,10 +271,7 @@ def test_post_cypher_updated_by(tmp_path: Path):
         conn = _conn(host, port)
         payload = json.dumps(
             {
-                "query": (
-                    "CREATE (n:Entity {name: $name, group_id: $gid}) "
-                    "RETURN n.uuid AS uuid"
-                ),
+                "query": ("CREATE (n:Entity {name: $name, group_id: $gid}) RETURN n.uuid AS uuid"),
                 "parameters": {"name": "Bob", "gid": "default"},
                 "updated_by": "alice",
             }
