@@ -1,12 +1,19 @@
-# Weekly update PRs for the GitHub Actions used by CI and release, and for the
-# docs toolchain. The library itself has no runtime dependencies.
+# One grouped update PR per ecosystem per week, for the GitHub Actions used by
+# CI and release, and for the docs toolchain. The library itself has no
+# runtime dependencies.
 version: 2
 updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    groups:
+      github-actions:
+        patterns: ["*"]
   - package-ecosystem: pip
     directory: /
     schedule:
       interval: weekly
+    groups:
+      docs-toolchain:
+        patterns: ["*"]
