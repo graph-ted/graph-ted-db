@@ -250,7 +250,6 @@ def _health_payload(store: GraphStore) -> dict[str, Any]:
         "format_version": store.meta.format_version,
         "id": store.meta.id,
         "name": store.meta.name,
-        "root": str(store.root),
         "nodes": 0,
         "edges": 0,
     }

@@ -29,9 +29,13 @@ First public release.
 - `graph-ted-db` CLI (alias `graphted-db`): `init`, `info`, node and edge
   CRUD, `compact`, `doctor` (repairs torn lines and reports dangling edges;
   `--fix` tombstones them), `cypher`, `serve`, `--version`.
+- `updated_by` (record author) is empty by default and never taken from the
+  OS login name. Set it with `--by` / `--updated-by` on CLI writes, the
+  `GRAPH_TED_DB_UPDATED_BY` environment variable, or `updated_by=` in Python.
 - `graph-ted-db serve`: optional localhost JSON-over-HTTP endpoint
   (`/health`, `/info`, `/cypher`, atomic `statements` batches). Binding
-  beyond loopback requires a token.
+  beyond loopback requires a token. `/health`, the one route open without a
+  token, does not include the folder path.
 - Optional Graphiti driver (`graph_ted_db.driver.GraphTedDbDriver`), in-process
   or over HTTP.
 - Documentation site with `llms.txt` and `llms-full.txt`.

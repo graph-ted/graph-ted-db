@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import getpass
 import json
 import os
 import sys
@@ -14,14 +13,17 @@ from graph_ted_db import __version__
 from graph_ted_db.engine import CypherError
 from graph_ted_db.store import GraphFormatError, GraphStore, init_graph, load_graph_meta
 
+UPDATED_BY_ENV = "GRAPH_TED_DB_UPDATED_BY"
+
 
 def _who(explicit: str | None) -> str:
+    """Author string for written records: --by, else $GRAPH_TED_DB_UPDATED_BY, else empty.
+
+    Never the OS login name: records travel with the folder when it is synced.
+    """
     if explicit:
         return explicit
-    try:
-        return getpass.getuser()
-    except Exception:
-        return ""
+    return os.environ.get(UPDATED_BY_ENV, "")
 
 
 def _parse_prop(raw: str) -> tuple[str, Any]:
@@ -60,7 +62,13 @@ def main(argv: list[str] | None = None) -> int:
     put_n.add_argument("--id", dest="record_id", default=None)
     put_n.add_argument("--label", action="append", default=[])
     put_n.add_argument("--prop", action="append", default=[], type=_parse_prop)
-    put_n.add_argument("--by", dest="updated_by", default=None)
+    put_n.add_argument(
+        "--by",
+        "--updated-by",
+        dest="updated_by",
+        default=None,
+        help="author stored on the record (default: $GRAPH_TED_DB_UPDATED_BY, else empty)",
+    )
 
     get_n = sub.add_parser("get-node", help="print one node as JSON")
     get_n.add_argument("path", type=Path)
@@ -72,7 +80,13 @@ def main(argv: list[str] | None = None) -> int:
     del_n = sub.add_parser("delete-node", help="tombstone a node")
     del_n.add_argument("path", type=Path)
     del_n.add_argument("record_id")
-    del_n.add_argument("--by", dest="updated_by", default=None)
+    del_n.add_argument(
+        "--by",
+        "--updated-by",
+        dest="updated_by",
+        default=None,
+        help="author stored on the record (default: $GRAPH_TED_DB_UPDATED_BY, else empty)",
+    )
 
     put_e = sub.add_parser("put-edge", help="create or overwrite an edge (LWW)")
     put_e.add_argument("path", type=Path)
@@ -81,7 +95,13 @@ def main(argv: list[str] | None = None) -> int:
     put_e.add_argument("--to", required=True, dest="to_id")
     put_e.add_argument("--id", dest="record_id", default=None)
     put_e.add_argument("--prop", action="append", default=[], type=_parse_prop)
-    put_e.add_argument("--by", dest="updated_by", default=None)
+    put_e.add_argument(
+        "--by",
+        "--updated-by",
+        dest="updated_by",
+        default=None,
+        help="author stored on the record (default: $GRAPH_TED_DB_UPDATED_BY, else empty)",
+    )
 
     get_e = sub.add_parser("get-edge", help="print one edge as JSON")
     get_e.add_argument("path", type=Path)
@@ -93,7 +113,13 @@ def main(argv: list[str] | None = None) -> int:
     del_e = sub.add_parser("delete-edge", help="tombstone an edge")
     del_e.add_argument("path", type=Path)
     del_e.add_argument("record_id")
-    del_e.add_argument("--by", dest="updated_by", default=None)
+    del_e.add_argument(
+        "--by",
+        "--updated-by",
+        dest="updated_by",
+        default=None,
+        help="author stored on the record (default: $GRAPH_TED_DB_UPDATED_BY, else empty)",
+    )
 
     compact_p = sub.add_parser(
         "compact",
@@ -129,6 +155,13 @@ def main(argv: list[str] | None = None) -> int:
         "--params",
         default="{}",
         help="JSON object of query parameters",
+    )
+    cypher_p.add_argument(
+        "--by",
+        "--updated-by",
+        dest="updated_by",
+        default=None,
+        help='author stored on written records (default: $GRAPH_TED_DB_UPDATED_BY, else "cypher")',
     )
 
     serve_p = sub.add_parser(
@@ -243,7 +276,7 @@ def _dispatch(args: argparse.Namespace) -> int:
         params = json.loads(args.params) if args.params else {}
         if not isinstance(params, dict):
             raise ValueError("--params must be a JSON object")
-        rows = store.execute(query, params)
+        rows = store.execute(query, params, updated_by=_who(args.updated_by) or "cypher")
         for row in rows:
             print(json.dumps(row, ensure_ascii=False))
         return 0
