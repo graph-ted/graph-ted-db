@@ -6,9 +6,28 @@ Publishing uses PyPI trusted publishing from `.github/workflows/release.yml`
 (environments `pypi` and `testpypi`). No API tokens exist anywhere. Only the
 release workflow can upload.
 
+## 0. Launch step: restore full CI on pull requests
+
+While the repository is private, pull requests run a trimmed CI to save Actions
+minutes: Linux on Python 3.10 and 3.13 (the 3.13 job is the full gate: tests,
+PII scan, docs, package build) plus one wheel install. Push to `main`, `v*`
+tags and manual runs (Actions → CI → Run workflow) always run the full matrix:
+tests on Linux 3.10–3.14, macOS and Windows, and the 30 wheel/sdist install jobs.
+
+Right after the repository is made public:
+
+1. In `.github/workflows/ci.yml`, set `FULL_MATRIX_ON_PULL_REQUESTS: "true"`
+   (the `env:` block at the top). That is the only switch.
+2. Merge that one-line PR and check that its own run shows the full matrix.
+
+Until then, check the full-matrix run on `main` after each merge, and run it
+manually on a branch before merging anything platform-specific (paths, locks,
+file attributes).
+
 ## 1. Cut a release
 
-1. On `main`, with CI green (tests, install matrix, PII scan, docs build):
+1. On `main`, with the full CI green (tests, install matrix, PII scan, docs build;
+   the push-to-`main` run, not the trimmed PR run):
    - Set `version` in `pyproject.toml`.
    - Move the `Unreleased` notes in `CHANGELOG.md` under the new version and date.
      Call out breaking changes under **Changed**, and any on-disk format change

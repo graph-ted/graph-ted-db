@@ -5,20 +5,50 @@ on:
     branches: [main]
   push:
     branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+env:
+  # THE SWITCH. While the repo is private, pull requests run a trimmed set
+  # (Linux, Python 3.10 and 3.13, one wheel install) to save Actions minutes;
+  # push to main, release tags and manual runs always get the full matrix
+  # (3 OS x 3.10-3.14 tests, 30 install jobs). After the repo goes public
+  # (minutes are free), set this to "true". See docs/RELEASING.md.
+  FULL_MATRIX_ON_PULL_REQUESTS: "false"
+
 jobs:
+  plan:
+    name: plan matrix
+    runs-on: ubuntu-latest
+    outputs:
+      tests: ${{ steps.m.outputs.tests }}
+      installs: ${{ steps.m.outputs.installs }}
+    steps:
+      - id: m
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ] || [ "$FULL_MATRIX_ON_PULL_REQUESTS" = "true" ]; then
+            tests='[{"os":"ubuntu-latest","python":"3.10"},{"os":"ubuntu-latest","python":"3.11"},{"os":"ubuntu-latest","python":"3.12"},{"os":"ubuntu-latest","python":"3.14"},{"os":"macos-latest","python":"3.13"},{"os":"windows-latest","python":"3.13"}]'
+            installs=$(python3 -c 'import json; print(json.dumps([{"os":o,"python":p,"artifact":a} for o in ["ubuntu-latest","macos-latest","windows-latest"] for p in ["3.10","3.11","3.12","3.13","3.14"] for a in ["wheel","sdist"]]))')
+          else
+            tests='[{"os":"ubuntu-latest","python":"3.10"}]'
+            installs='[{"os":"ubuntu-latest","python":"3.13","artifact":"wheel"}]'
+          fi
+          echo "tests=$tests" >> "$GITHUB_OUTPUT"
+          echo "installs=$installs" >> "$GITHUB_OUTPUT"
+
   test:
-    name: pytest (Python 3.11)
+    name: pytest (Python 3.13, full gate)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
 
       - uses: actions/setup-python@v6
         with:
-          python-version: "3.11"
+          python-version: "3.13"
 
       - name: Install
         run: pip install -e ".[dev]"
@@ -48,17 +78,12 @@ jobs:
   # above stays the full gate (PII scan, tokens, docs, package build).
   matrix:
     name: pytest (${{ matrix.os }}, Python ${{ matrix.python }})
+    needs: plan
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { os: ubuntu-latest, python: "3.10" }
-          - { os: ubuntu-latest, python: "3.12" }
-          - { os: ubuntu-latest, python: "3.13" }
-          - { os: ubuntu-latest, python: "3.14" }
-          - { os: macos-latest, python: "3.13" }
-          - { os: windows-latest, python: "3.13" }
+        include: ${{ fromJSON(needs.plan.outputs.tests) }}
     steps:
       - uses: actions/checkout@v5
 
@@ -94,14 +119,12 @@ jobs:
 
   install:
     name: install ${{ matrix.artifact }} (${{ matrix.os }}, Python ${{ matrix.python }})
-    needs: build
+    needs: [plan, build]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        python: ["3.10", "3.11", "3.12", "3.13", "3.14"]
-        artifact: [wheel, sdist]
+        include: ${{ fromJSON(needs.plan.outputs.installs) }}
     defaults:
       run:
         shell: bash
