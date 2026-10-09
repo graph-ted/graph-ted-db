@@ -1,2 +1,10 @@
 # Meta package is built from packages/graphted, not shipped inside graph-ted-db.
 prune packages
+# The sdist is the library plus README, LICENSE and CHANGELOG. Tests need the
+# repo's scripts, docs and fixtures, so they stay in git, not in the sdist.
+prune tests
+prune reports
+prune docs
+prune scripts
+include CHANGELOG.md
+global-exclude *.py[cod] __pycache__

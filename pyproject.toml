@@ -18,6 +18,11 @@ classifiers = [
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Database",
     "Topic :: Database :: Database Engines/Servers",
 ]
@@ -28,6 +33,7 @@ Homepage = "https://graph-ted.com/graph-ted-db/"
 Documentation = "https://graph-ted.com/graph-ted-db/docs/"
 Source = "https://github.com/graph-ted/graph-ted-db"
 Issues = "https://github.com/graph-ted/graph-ted-db/issues"
+Changelog = "https://github.com/graph-ted/graph-ted-db/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]

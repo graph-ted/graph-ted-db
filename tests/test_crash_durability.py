@@ -24,6 +24,12 @@ from tests.crash_worker import (
     record_id,
 )
 
+# The crash harness kills a worker with SIGKILL and fsyncs directories through
+# os.open(dir); Windows has neither. Crash durability is tested on Linux/macOS.
+pytestmark = pytest.mark.skipif(
+    sys.platform == "win32", reason="crash harness needs SIGKILL and directory fsync"
+)
+
 WORKER = Path(__file__).with_name("crash_worker.py")
 RANDOM_AFTER_ACK = 12
 RANDOM_IMMEDIATE = 8
