@@ -738,7 +738,8 @@ class GraphStore(_GraphStoreAliases):
         except OSError:
             self._note_index_current()
             return
-        rel = str(path.relative_to(self.root))
+        # Same key shape as _shard_fingerprint ("nodes/00.jsonl"), also on Windows.
+        rel = path.relative_to(self.root).as_posix()
         kept = [item for item in self._index_fp if item[0] != rel]
         kept.append((rel, stat.st_mtime_ns, stat.st_size))
         self._index_fp = tuple(sorted(kept))
