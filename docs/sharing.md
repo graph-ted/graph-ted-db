@@ -1,6 +1,13 @@
 # Sharing a graph
 
-**Sharing a graph through a sync service.** A graph folder can live in a folder that OneDrive, Dropbox or rclone syncs between devices. graph-ted-db never corrupts or splices records: when two devices change the same record, one complete version wins (last write wins), and conflict copies made by the sync tool are read and merged automatically. End-to-end sync has been tested with `rclone bisync`; OneDrive and Dropbox conflict-copy names are handled by the file-name rules in [On-disk format](format.md) but have not been tested end to end yet. **Use one writer at a time:** finish writing and let the sync complete before writing from another device. Writing on two devices at once is not supported; a sync that runs while you write can drop recent writes. A multi-record transaction is atomic on the device that wrote it; other devices may briefly see part of it while files sync.
+**Sharing a graph through a sync service.** A graph folder can live in a folder that OneDrive, Dropbox or rclone syncs between devices. Multiple devices can add and edit at the same time; concurrent edits to the same record resolve to the latest version. Tested end to end with OneDrive via rclone; Dropbox and other sync services are expected to work. graph-ted-db never corrupts or splices records: when two devices change the same record, one complete version wins (last write wins), and conflict copies made by the sync tool are read and merged automatically. A multi-record transaction is atomic on the device that wrote it; other devices may briefly see part of it while files sync.
+
+## Limits
+
+- **Clocks.** Device clocks decide which of two truly simultaneous edits wins. The result is deterministic, but a badly skewed clock can win.
+- **No cleanup yet.** Files grow with edit history.
+- **Deleted writer files.** A writer's file deleted on the remote loses that writer's unsynced records.
+- **OneDrive Files On-Demand.** Keep the graph folder **Always keep on this device**.
 
 ## If you use rclone
 

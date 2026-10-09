@@ -63,7 +63,7 @@ curl -s http://127.0.0.1:8099/cypher -H 'Content-Type: application/json' \
 - **In-process API** — `put` / `get` / `iter` / `delete` without opening a network port
 - **openCypher queries** — `g.execute(...)` runs a documented subset of openCypher for graph-pattern queries ([openCypher subset](https://graph-ted.com/graph-ted-db/docs/cypher/))
 - **Optional HTTP** — localhost endpoint for openCypher queries when another process needs the store ([HTTP docs](https://graph-ted.com/graph-ted-db/docs/http/))
-- **Sync-friendly** — last-write-wins per record; conflict-copy shards merged on read
+- **Sync-friendly** — multiple devices can write at once; last-write-wins per record; conflict-copy shards merged on read
 - **NetworkX-style helpers** — `add_node`, `add_edge`, `neighbors`, and related methods on the same `GraphStore` (no algorithm suite)
 
 ## What it is and isn't
@@ -73,7 +73,7 @@ curl -s http://127.0.0.1:8099/cypher -H 'Content-Type: application/json' \
 - A Python library that stores a property graph (nodes, edges, properties, embeddings) as plain JSONL files in one folder.
 - In-process: open, read, write and query from your own Python process. No server to install or run.
 - A documented subset of openCypher, plus NetworkX-style helpers.
-- Sync-friendly for one writer at a time: the folder can live in OneDrive, Dropbox or an `rclone bisync` folder (see [Sharing](https://graph-ted.com/graph-ted-db/docs/sharing/)).
+- Sync-friendly across devices: multiple devices can add and edit at the same time; concurrent edits to the same record resolve to the latest version. The folder can live in OneDrive, Dropbox or an `rclone bisync` folder (see [Sharing](https://graph-ted.com/graph-ted-db/docs/sharing/)).
 - Small: no runtime dependencies beyond the Python standard library.
 
 **It isn't:**
