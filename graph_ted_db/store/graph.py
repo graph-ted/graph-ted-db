@@ -8,6 +8,7 @@ import os
 import signal
 import stat as stat_mod
 import threading
+import time
 from collections import defaultdict
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
@@ -65,6 +66,9 @@ from graph_ted_db.store.records import (
 )
 
 log = logging.getLogger("graph_ted_db")
+
+# Above this many nodes plus edges, open warns (docs/overview.md, Graph size).
+LARGE_GRAPH_RECORDS = 250_000
 
 # Windows attributes of a OneDrive Files-On-Demand (cloud-only) placeholder.
 _CLOUD_ONLY_ATTRS = (
@@ -217,11 +221,22 @@ class GraphStore(_GraphStoreAliases):
         Returns:
             An open store.
         """
+        started = time.perf_counter()
         store = cls(root, data_dir=data_dir)
         with store._lock():
             store._recover_files()
             store._replay_wal_unlocked()
             store._rebuild_index_unlocked()
+            n_records = 0
+            if store._index is not None:
+                n_records = len(store._index.nodes) + len(store._index.edges)
+            if n_records > LARGE_GRAPH_RECORDS:
+                log.warning(
+                    "graph-ted-db: open took %.1fs for %d records; about 100,000 is comfortable."
+                    " See Graph size in the docs (docs/overview.md)",
+                    time.perf_counter() - started,
+                    n_records,
+                )
             problems = store.problems()
             if any(problems.values()):
                 log.warning(
@@ -1097,9 +1112,7 @@ class GraphStore(_GraphStoreAliases):
                 name = child.name
                 if name.endswith((".tmp", ".jsonl")):
                     found.append(child)
-        graph_tmp = self.paths.graph_json.with_name(self.paths.graph_json.name + ".tmp")
-        if graph_tmp.is_file():
-            found.append(graph_tmp)
+        found.extend(sorted(self.root.glob("graph.json*.tmp")))
         return found
 
     def _conflict_copy_paths(self) -> list[Path]:

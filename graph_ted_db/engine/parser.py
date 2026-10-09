@@ -42,8 +42,9 @@ from graph_ted_db.engine.lexer import Token, tokenize
 
 
 class Parser:
-    def __init__(self, tokens: list[Token]) -> None:
+    def __init__(self, tokens: list[Token], source: str = "") -> None:
         self.tokens = tokens
+        self.source = source
         self.i = 0
 
     @property
@@ -325,12 +326,18 @@ class Parser:
         return items
 
     def parse_return_item(self) -> ReturnItem:
+        start = self.cur.pos
         expr = self.parse_or()
+        end = self.cur.pos
         alias = None
         if self.match("AS"):
             alias = self.eat_name()
         elif isinstance(expr, Var):
             alias = expr.name
+        elif self.source:
+            # Unaliased expression: the column is named by its source text,
+            # e.g. RETURN b.name -> "b.name", count(*) -> "count(*)".
+            alias = " ".join(self.source[start:end].split()) or None
         return ReturnItem(expr, alias)
 
     def parse_pattern(self) -> Pattern:
@@ -494,6 +501,10 @@ class Parser:
 
     def parse_call(self, name: str) -> Call:
         self.eat("(")
+        if name.lower() == "count" and self.at("*"):
+            self.eat("*")
+            self.eat(")")
+            return Call(name, (), False, star=True)
         distinct = self.match("DISTINCT") is not None
         args: list[object] = []
         if not self.at(")"):
@@ -579,4 +590,4 @@ def _dotted_call_name(expr: object) -> str:
 
 
 def parse_query(source: str) -> Query | UnionQuery:
-    return Parser(tokenize(source)).parse()
+    return Parser(tokenize(source), source).parse()

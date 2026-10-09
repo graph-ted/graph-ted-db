@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import errno
 import json
 import os
 import sys
@@ -37,7 +38,10 @@ def _parse_prop(raw: str) -> tuple[str, Any]:
 
 
 def _store(path: Path) -> GraphStore:
-    return GraphStore.open(path.expanduser().resolve())
+    root = path.expanduser().resolve()
+    if not (root / "graph.json").is_file():
+        raise GraphFormatError(f"no graph at {path}; create one with `graph-ted-db init {path}`")
+    return GraphStore.open(root)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -344,7 +348,17 @@ def _dispatch(args: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
             return 1
-        serve(store, host=host, port=port, max_records=max_records, token=token)
+        try:
+            serve(store, host=host, port=port, max_records=max_records, token=token)
+        except OSError as exc:
+            if exc.errno in (errno.EADDRINUSE, 10048):  # 10048: WSAEADDRINUSE
+                print(
+                    f"graph-ted-db: port {port} in use; pass --port "
+                    "(another graph-ted-db serve may still be running)",
+                    file=sys.stderr,
+                )
+                return 1
+            raise
         return 0
     raise AssertionError(f"unhandled command {args.command}")
 

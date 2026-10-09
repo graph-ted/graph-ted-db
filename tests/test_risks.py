@@ -122,9 +122,10 @@ def test_skipped_lines_warn_on_open_and_show_in_info_and_health(
     finally:
         del os.environ["GRAPH_TED_DB_DATA"]
     assert "skipped_lines=1" in capsys.readouterr().out
-    from graph_ted_db.server.http import _health_payload
+    from graph_ted_db.server.http import _health_payload, _info_payload
 
-    assert _health_payload(reopened)["problems"]["skipped_lines"] == 1
+    assert _info_payload(reopened)["problems"]["skipped_lines"] == 1
+    assert "problems" not in _health_payload(reopened)
 
 
 @pytest.mark.parametrize("code", [errno.ENOSPC, errno.EACCES])

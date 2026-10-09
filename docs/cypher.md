@@ -28,7 +28,9 @@ Aimed at the queries the graph-ted app and the Graphiti driver send.
 
 **Expressions:** `$params`, property `.`, subscript `expr[index]` (lists, strings, maps), label check `n:Entity`, `AND`/`OR`/`NOT`, `= <> < > <= >=`, `IN`, `IS NULL` / `IS NOT NULL`, `+` (lists append a non-list), `CASE WHEN … THEN … ELSE … END`, list literals, map literals `{k: expr}`, list comprehensions `[x IN expr WHERE pred]`.
 
-**Functions:** `labels`, `type`, `properties`, `elementId` (also `id`), `coalesce`, `size`, `toString`, `toLower`, `toUpper`, `collect` `[DISTINCT]`, `max`, `min`, `count` `[DISTINCT]`, `vector.similarity.cosine`.
+**Functions:** `labels`, `type`, `properties`, `elementId` (also `id`), `coalesce`, `size`, `toString`, `toLower`, `toUpper`, `collect` `[DISTINCT]`, `max`, `min`, `count` `[DISTINCT]`, `count(*)` (number of rows), `vector.similarity.cosine`.
+
+**Column names:** `RETURN expr AS name` names a column `name`. A bare variable is named by the variable (`RETURN n` → `n`). Any other expression without `AS` is named by its source text with whitespace collapsed: `RETURN b.name` → `b.name`, `RETURN count(*)` → `count(*)`. Use `AS` when a client depends on the name.
 
 **Not yet:** `FOREACH`, subqueries, `SHORTESTPATH`, ranked BM25 fulltext (fulltext is substring token overlap), `IN TRANSACTIONS`. `elementId` is the record UUID. Nested objects in `props` are stored but not walked by `.` beyond one map.
 

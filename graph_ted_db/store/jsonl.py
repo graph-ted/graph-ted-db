@@ -242,7 +242,9 @@ def replace_json_file(path: Path, payload: dict[str, Any]) -> None:
 
 def _replace_bytes(path: Path, data: bytes, *, crash_at: str | None = None) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
+    # Unique per process and call, so two processes (or a sync client's
+    # stale copy) never share a temp file.
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{os.urandom(4).hex()}.tmp")
     try:
         with tmp.open("wb") as handle:
             handle.write(data)

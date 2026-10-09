@@ -189,6 +189,7 @@ class Call:
     name: str
     args: tuple[Any, ...]
     distinct: bool = False
+    star: bool = False  # count(*)
 
 
 @dataclass(frozen=True)
