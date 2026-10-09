@@ -19,7 +19,7 @@ env:
   #     (Linux 3.10-3.14 and Windows tests, 20 Linux/Windows install jobs).
   # After the repo goes public (minutes are free), set it to "false" to run
   # the full matrix everywhere, macOS included. See docs/RELEASING.md.
-  REPO_IS_PRIVATE: "true"
+  REPO_IS_PRIVATE: "false"
 
 jobs:
   plan:
