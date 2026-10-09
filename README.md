@@ -38,12 +38,22 @@ print(g.get_node(alice.id).props["name"])
 CLI:
 
 ```bash
-graph-ted-db init ./my-graph --name demo
+graph-ted-db init ./my-graph --name demo --exist-ok
 graph-ted-db put-node ./my-graph --label Person --prop name=Alice
 graph-ted-db ls-nodes ./my-graph
 ```
 
 `graphted-db` is an alias for the same command.
+
+Optional HTTP (localhost only by default; see [docs/http.md](docs/http.md)):
+
+```bash
+graph-ted-db serve ./my-graph
+# in another terminal:
+curl -s http://127.0.0.1:8099/health
+curl -s http://127.0.0.1:8099/cypher -H 'Content-Type: application/json' \
+  -d '{"query":"MATCH (n:Person) RETURN n.name AS name"}'
+```
 
 ## Features
 

@@ -38,7 +38,7 @@ for node in g.iter_nodes():
 ## Command line
 
 ```bash
-graph-ted-db init ./my-graph --name demo
+graph-ted-db init ./my-graph --name demo --exist-ok
 graph-ted-db put-node ./my-graph --label Person --prop name=Alice
 graph-ted-db ls-nodes ./my-graph
 graph-ted-db info ./my-graph
