@@ -23,7 +23,7 @@ from pathlib import Path
 
 def blocks(readme: str, lang: str) -> list[str]:
     section = readme.split("## Quick start", 1)[1].split("\n## ", 1)[0]
-    return re.findall(rf"```{lang}\n(.*?)```", section, flags=re.S)
+    return re.findall(rf"```{lang}\n(.*?)```", section, flags=re.DOTALL)
 
 
 def main() -> int:
@@ -32,7 +32,7 @@ def main() -> int:
     sh = blocks(readme, "bash")[0]
     bindir = Path(sys.executable).parent
     with tempfile.TemporaryDirectory() as tmp:
-        out = subprocess.run([sys.executable, "-c", py], cwd=tmp, capture_output=True, text=True)
+        out = subprocess.run([sys.executable, "-c", py], check=False, cwd=tmp, capture_output=True, text=True)
         print(out.stdout, out.stderr, sep="", end="")
         if out.returncode != 0 or out.stdout.strip() != "Alice":
             print("quick start (python) failed", file=sys.stderr)
@@ -44,7 +44,7 @@ def main() -> int:
             if exe is None:
                 print(f"console script not found: {argv[0]}", file=sys.stderr)
                 return 1
-            out = subprocess.run([exe, *argv[1:]], cwd=tmp, capture_output=True, text=True,
+            out = subprocess.run([exe, *argv[1:]], check=False, cwd=tmp, capture_output=True, text=True,
                                  env={**os.environ, "PYTHONUTF8": "1"})
             print(f"$ {line}\n{out.stdout}{out.stderr}", end="")
             if out.returncode != 0:

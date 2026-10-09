@@ -6,7 +6,7 @@ import time
 import types
 from pathlib import Path
 
-import graph_ted_db.driver.http as http
+from graph_ted_db.driver import http
 from graph_ted_db.store import GraphStore, init_graph
 
 
