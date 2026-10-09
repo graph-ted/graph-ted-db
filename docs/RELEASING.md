@@ -6,23 +6,30 @@ Publishing uses PyPI trusted publishing from `.github/workflows/release.yml`
 (environments `pypi` and `testpypi`). No API tokens exist anywhere. Only the
 release workflow can upload.
 
-## 0. Launch step: restore full CI on pull requests
+## 0. Launch step: restore full CI
 
-While the repository is private, pull requests run a trimmed CI to save Actions
-minutes: Linux on Python 3.10 and 3.13 (the 3.13 job is the full gate: tests,
-PII scan, docs, package build) plus one wheel install. Push to `main`, `v*`
-tags and manual runs (Actions → CI → Run workflow) always run the full matrix:
-tests on Linux 3.10–3.14, macOS and Windows, and the 30 wheel/sdist install jobs.
+While the repository is private, CI is trimmed to save Actions minutes, under
+one switch, `REPO_IS_PRIVATE: "true"` in the `env:` block at the top of
+`.github/workflows/ci.yml`:
+
+- Pull requests: Linux on Python 3.10 and 3.13 (the 3.13 job is the full gate:
+  tests, PII scan, docs, package build) plus one wheel install.
+- Push to `main`, `v*` tags and manual runs (Actions → CI → Run workflow):
+  tests on Linux 3.10–3.14 and Windows 3.13, and wheel/sdist installs on Linux
+  and Windows for 3.10–3.14 (20 jobs). **macOS is not run.**
 
 Right after the repository is made public:
 
-1. In `.github/workflows/ci.yml`, set `FULL_MATRIX_ON_PULL_REQUESTS: "true"`
-   (the `env:` block at the top). That is the only switch.
-2. Merge that one-line PR and check that its own run shows the full matrix.
+1. Set `REPO_IS_PRIVATE: "false"`. That is the only switch. It restores the
+   full matrix everywhere: tests on Linux, macOS and Windows, and all 30
+   install jobs, on pull requests too.
+2. Merge that one-line PR and check that its run shows macOS jobs.
 
-Until then, check the full-matrix run on `main` after each merge, and run it
-manually on a branch before merging anything platform-specific (paths, locks,
-file attributes).
+Until then, macOS is covered only by local runs, if at all: run the full CI
+manually before merging anything platform-specific (paths, locks, file
+attributes), and when hosted minutes are unavailable, verify locally (test
+suite on 3.10–3.14, `scripts/pii_scan.py`, `mkdocs build --strict`, wheel and
+sdist installs in clean venvs) and post the results on the PR.
 
 ## 1. Cut a release
 

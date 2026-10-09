@@ -12,12 +12,14 @@ permissions:
   contents: read
 
 env:
-  # THE SWITCH. While the repo is private, pull requests run a trimmed set
-  # (Linux, Python 3.10 and 3.13, one wheel install) to save Actions minutes;
-  # push to main, release tags and manual runs always get the full matrix
-  # (3 OS x 3.10-3.14 tests, 30 install jobs). After the repo goes public
-  # (minutes are free), set this to "true". See docs/RELEASING.md.
-  FULL_MATRIX_ON_PULL_REQUESTS: "false"
+  # THE SWITCH. "true" while the repo is private, to save Actions minutes:
+  #   - pull requests run a trimmed set (Linux, Python 3.10 and 3.13, one
+  #     wheel install);
+  #   - push to main, v* tags and manual runs run the full matrix minus macOS
+  #     (Linux 3.10-3.14 and Windows tests, 20 Linux/Windows install jobs).
+  # After the repo goes public (minutes are free), set it to "false" to run
+  # the full matrix everywhere, macOS included. See docs/RELEASING.md.
+  REPO_IS_PRIVATE: "true"
 
 jobs:
   plan:
@@ -30,12 +32,14 @@ jobs:
       - id: m
         shell: bash
         run: |
-          if [ "${{ github.event_name }}" != "pull_request" ] || [ "$FULL_MATRIX_ON_PULL_REQUESTS" = "true" ]; then
-            tests='[{"os":"ubuntu-latest","python":"3.10"},{"os":"ubuntu-latest","python":"3.11"},{"os":"ubuntu-latest","python":"3.12"},{"os":"ubuntu-latest","python":"3.14"},{"os":"macos-latest","python":"3.13"},{"os":"windows-latest","python":"3.13"}]'
-            installs=$(python3 -c 'import json; print(json.dumps([{"os":o,"python":p,"artifact":a} for o in ["ubuntu-latest","macos-latest","windows-latest"] for p in ["3.10","3.11","3.12","3.13","3.14"] for a in ["wheel","sdist"]]))')
-          else
+          if [ "$REPO_IS_PRIVATE" = "true" ] && [ "${{ github.event_name }}" = "pull_request" ]; then
             tests='[{"os":"ubuntu-latest","python":"3.10"}]'
             installs='[{"os":"ubuntu-latest","python":"3.13","artifact":"wheel"}]'
+          else
+            oses='["ubuntu-latest","macos-latest","windows-latest"]'
+            if [ "$REPO_IS_PRIVATE" = "true" ]; then oses='["ubuntu-latest","windows-latest"]'; fi
+            tests=$(OSES="$oses" python3 -c 'import json,os; o=json.loads(os.environ["OSES"]); t=[{"os":"ubuntu-latest","python":p} for p in ["3.10","3.11","3.12","3.14"]]; t+=[{"os":x,"python":"3.13"} for x in o if x!="ubuntu-latest"]; print(json.dumps(t))')
+            installs=$(OSES="$oses" python3 -c 'import json,os; print(json.dumps([{"os":o,"python":p,"artifact":a} for o in json.loads(os.environ["OSES"]) for p in ["3.10","3.11","3.12","3.13","3.14"] for a in ["wheel","sdist"]]))')
           fi
           echo "tests=$tests" >> "$GITHUB_OUTPUT"
           echo "installs=$installs" >> "$GITHUB_OUTPUT"
