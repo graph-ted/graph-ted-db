@@ -7,7 +7,10 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 FORMAT_NAME = "graph-ted-db"
-FORMAT_VERSION = 1
+FORMAT_VERSION = 2
+# v2: each writer appends only to its own files ("<stem>.<writer>.jsonl").
+LAYOUT_PER_WRITER = "per-writer"
+_WRITER_RE = re.compile(r"^w[0-9a-f]{16}$")
 SHARD_FANOUT = 256
 
 _UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
@@ -62,3 +65,14 @@ def format_timestamp(value: datetime | None = None) -> str:
         instant = instant.replace(tzinfo=timezone.utc)
     instant = instant.astimezone(timezone.utc)
     return instant.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+
+def is_writer_id(value: str) -> bool:
+    """A writer id: "w" + 16 random lowercase hex digits. Never derived from names."""
+    return bool(_WRITER_RE.match(value))
+
+
+def new_writer_id() -> str:
+    import secrets
+
+    return "w" + secrets.token_hex(8)

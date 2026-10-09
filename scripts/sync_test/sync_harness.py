@@ -136,7 +136,6 @@ def _txn(store, fn) -> None:
 
 def cmd_write(args: argparse.Namespace) -> int:
     from graph_ted_db.store import GraphStore
-    from graph_ted_db.store.format import format_timestamp
     from graph_ted_db.store.records import EdgeRecord, NodeRecord
 
     plan = [json.loads(line) for line in Path(args.plan).read_text().splitlines() if line.strip()]
@@ -151,7 +150,7 @@ def cmd_write(args: argparse.Namespace) -> int:
 
         def body() -> None:
             for op in batch:
-                stamp = format_timestamp()
+                stamp = store._clock_now()
                 if op["op"] == "node":
                     rec = NodeRecord(
                         id=op["id"],
@@ -160,12 +159,14 @@ def cmd_write(args: argparse.Namespace) -> int:
                         props=op["props"],
                         updated_by=args.writer,
                     )
-                    store.put_node(rec)
+                    rec = store._put_node_unlocked(rec)
                     entries.append(
                         {
                             "kind": "node",
                             "id": op["id"],
-                            "at": stamp,
+                            "at": rec.updated_at,
+                            "counter": rec.counter,
+                            "w": rec.writer,
                             "hash": node_hash(op["labels"], op["props"]),
                         }
                     )
@@ -179,25 +180,41 @@ def cmd_write(args: argparse.Namespace) -> int:
                         props=op["props"],
                         updated_by=args.writer,
                     )
-                    store.put_edge(rec)
+                    rec = store._put_edge_unlocked(rec)
                     entries.append(
                         {
                             "kind": "edge",
                             "id": op["id"],
-                            "at": stamp,
+                            "at": rec.updated_at,
+                            "counter": rec.counter,
+                            "w": rec.writer,
                             "hash": edge_hash(op["type"], op["from"], op["to"], op["props"]),
                         }
                     )
                 elif op["op"] in ("del_node", "del_edge"):
                     kind = "node" if op["op"] == "del_node" else "edge"
                     if kind == "node":
-                        store._delete_node_unlocked(op["id"], updated_by=args.writer, now=stamp)
+                        tomb = store._delete_node_unlocked(
+                            op["id"], updated_by=args.writer, now=stamp
+                        )
                     else:
-                        store._delete_edge_unlocked(op["id"], updated_by=args.writer, now=stamp)
-                    entries.append({"kind": kind, "id": op["id"], "at": stamp, "hash": None})
+                        tomb = store._delete_edge_unlocked(
+                            op["id"], updated_by=args.writer, now=stamp
+                        )
+                    entries.append(
+                        {
+                            "kind": kind,
+                            "id": op["id"],
+                            "at": tomb.updated_at,
+                            "counter": tomb.counter,
+                            "w": tomb.writer,
+                            "hash": None,
+                        }
+                    )
 
         if len(batch) == 1:
-            body()
+            with store._lock():
+                body()
         else:
             _txn(store, body)
         txn = uuid.uuid4().hex[:8]
@@ -438,20 +455,26 @@ def read_journals(*writers: Writer) -> list[dict[str, Any]]:
     return out
 
 
+def _hlc_key(e: dict[str, Any]) -> tuple[Any, ...]:
+    # Same order as graph_ted_db.store.lww: (wall, counter, writer, tombstone).
+    return (e["at"], e.get("counter", 0), e.get("w", ""), 1 if e["hash"] is None else 0)
+
+
 def expected_state(entries: list[dict[str, Any]]) -> dict[tuple[str, str], dict[str, Any]]:
     """Newest journaled version per (kind, id). hash None means deleted."""
     best: dict[tuple[str, str], dict[str, Any]] = {}
     for e in entries:
         key = (e["kind"], e["id"])
         cur = best.get(key)
-        cand = (e["at"], 1 if e["hash"] is None else 0)
-        if cur is None or cand > (cur["at"], 1 if cur["hash"] is None else 0):
+        if cur is None or _hlc_key(e) > _hlc_key(cur):
             best[key] = e
     return best
 
 
 def raw_scan(store: Path) -> dict[str, Any]:
     """Every parseable record line under the folder, regardless of file name."""
+    from graph_ted_db.store.paths import writer_of
+
     ids: dict[str, set[str]] = {"node": set(), "edge": set()}
     noncanonical: list[str] = []
     bad_lines = 0
@@ -462,9 +485,10 @@ def raw_scan(store: Path) -> dict[str, Any]:
         for p in sorted(d.iterdir()):
             if not p.is_file():
                 continue
-            canon = (len(p.name) == 8 and p.name.endswith(".jsonl")) or p.name in (
-                "deleted.jsonl",
-                "labels.json",
+            canon = (
+                (len(p.name) == 8 and p.name.endswith(".jsonl"))
+                or writer_of(p.name) is not None
+                or p.name in ("deleted.jsonl", "labels.json")
             )
             if not canon:
                 noncanonical.append(f"{sub}/{p.name}")

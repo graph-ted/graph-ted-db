@@ -74,7 +74,7 @@ def test_bisync_renamed_shard_stays_visible(tmp_path: Path, suffixes: tuple[str,
     assert len(fresh.doctor().conflict_copies) == 2
     # A write after the rename recreates the canonical shard; everything stays visible.
     fresh.put_node(_node(A, "alice-2"))
-    assert shard.is_file()
+    assert fresh.paths.node_shard(A).is_file()
     assert {n.props["name"] for n in fresh.iter_nodes()} == {"alice-2", "bob"}
 
 

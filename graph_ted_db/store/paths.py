@@ -12,7 +12,20 @@ from graph_ted_db.store.format import shard_id
 
 @dataclass(frozen=True)
 class GraphPaths:
+    """Paths in a graph folder.
+
+    With ``writer`` set (format v2), the shard and tombstone paths are that
+    writer's own files, ``<stem>.<writer>.jsonl``. Without it they are the
+    shared v1 names, which v2 only reads.
+    """
+
     root: Path
+    writer: str = ""
+
+    def _own(self, directory: Path, stem: str) -> Path:
+        if self.writer:
+            return directory / f"{stem}.{self.writer}.jsonl"
+        return directory / f"{stem}.jsonl"
 
     @property
     def graph_json(self) -> Path:
@@ -40,20 +53,28 @@ class GraphPaths:
 
     @property
     def deleted_jsonl(self) -> Path:
-        return self.meta_dir / "deleted.jsonl"
+        return self._own(self.meta_dir, "deleted")
+
+    @property
+    def writers_dir(self) -> Path:
+        return self.meta_dir / "writers"
 
     @property
     def labels_json(self) -> Path:
         return self.meta_dir / "labels.json"
 
     def node_shard(self, record_id: str) -> Path:
-        return self.nodes_dir / f"{shard_id(record_id)}.jsonl"
+        return self._own(self.nodes_dir, shard_id(record_id))
 
     def edge_shard(self, record_id: str) -> Path:
-        return self.edges_dir / f"{shard_id(record_id)}.jsonl"
+        return self._own(self.edges_dir, shard_id(record_id))
 
     def vector_shard(self, property_name: str, record_id: str) -> Path:
-        return self.vectors_dir / property_name / f"{shard_id(record_id)}.jsonl"
+        return self._own(self.vectors_dir / property_name, shard_id(record_id))
+
+    def own_file(self, directory: Path, stem: str) -> Path:
+        """This writer's file for a shard stem (or "deleted") in `directory`."""
+        return self._own(directory, stem)
 
     def required_directories(self) -> tuple[Path, ...]:
         return (
@@ -71,6 +92,15 @@ class GraphPaths:
 # (earlier releases). A transfer in progress is "<name>.<hash>.partial"; that is
 # not a conflict copy and stays ignored, like "*.tmp".
 _SUFFIXED_CONFLICT = re.compile(r"\.jsonl\.(?:[\w-]*conflict\d*|\.path[12])$", re.IGNORECASE)
+
+
+_WRITER_FILE = re.compile(r"^(?P<stem>[0-9a-f]{2}|deleted)\.(?P<writer>w[0-9a-f]{16})\.jsonl$")
+
+
+def writer_of(name: str) -> str | None:
+    """The writer id in a v2 per-writer file name, else None."""
+    match = _WRITER_FILE.match(name)
+    return match.group("writer") if match else None
 
 
 def is_record_file_name(name: str) -> bool:
@@ -95,6 +125,8 @@ def is_conflict_copy(path: Path, canonical_stem: str) -> bool:
     """
     if not is_record_file_name(path.name):
         return False
+    if writer_of(path.name) is not None:
+        return False
     if path.name == f"{canonical_stem}.jsonl":
         return False
     lowered = path.name.lower()
@@ -105,7 +137,11 @@ def is_conflict_copy(path: Path, canonical_stem: str) -> bool:
 
 
 def shard_jsonl_files(directory: Path, canonical_stem: str) -> list[Path]:
-    """Canonical shard plus any conflict-copy siblings, if they exist."""
+    """Every file holding records for this stem.
+
+    The v1 canonical shard, each writer's ``<stem>.<writer>.jsonl``, and any
+    sync-client conflict copies of either.
+    """
     if not directory.is_dir():
         return []
     found: list[Path] = []
@@ -130,6 +166,11 @@ def shard_jsonl_files(directory: Path, canonical_stem: str) -> list[Path]:
             if not (lowered.startswith(stem) or stem in lowered):
                 continue
             child = directory / name
+            match = _WRITER_FILE.match(name)
+            if match is not None:
+                if match.group("stem") == stem:
+                    conflicts.append(child)
+                continue
             if is_conflict_copy(child, canonical_stem):
                 conflicts.append(child)
     found.extend(sorted(conflicts))

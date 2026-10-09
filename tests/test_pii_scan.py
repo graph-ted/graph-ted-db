@@ -135,3 +135,26 @@ def test_history_applies_local_terms_to_own_fixtures(tmp_path: Path) -> None:
     repo = _history_repo(tmp_path)
     rules = pii.load_local_rules(root=repo, env={"GTDB_PII_TERMS": "jdoe"})
     assert {f.rule for f in pii.scan_history(rules, root=repo)} == {"local-term#1"}
+
+
+def test_store_files_and_writer_ids_have_no_pii(tmp_path: Path) -> None:
+    """Writer ids and every file a store writes pass the scan (format v2)."""
+    from graph_ted_db import GraphStore, init_graph
+    from graph_ted_db.store.format import is_writer_id
+
+    root = tmp_path / "g"
+    init_graph(root, name="demo")
+    data = tmp_path / "appdata"
+    g = GraphStore.open(root, data_dir=data)
+    a = g.make_node(labels=["E"], props={"name": "a"})
+    b = g.make_node(labels=["E"], props={"name": "b"})
+    g.make_edge(type="R", from_id=a.id, to_id=b.id)
+    g.delete_node(b.id)
+    assert is_writer_id(g.writer_id)
+    findings = []
+    for path in [*root.rglob("*"), *data.rglob("*")]:
+        if path.is_file():
+            text = path.read_text(encoding="utf-8", errors="replace")
+            findings += pii.scan_text(path.name + " " + path.name, text, pii.GENERIC_RULES)
+            findings += pii.scan_text("name", path.name, pii.GENERIC_RULES)
+    assert findings == []

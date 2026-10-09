@@ -22,6 +22,15 @@ First public release.
   (OneDrive- and Dropbox-style names, rclone bisync `.conflictN` / `..pathN`)
   so a graph folder can be shared through a file-sync service, one writer at
   a time.
+- On-disk format version 2 (`docs/format.md`): each writer appends only to
+  its own files (`<shard>.<writer>.jsonl`, `meta/deleted.<writer>.jsonl`),
+  with a random writer id kept in local app data and a registration file in
+  `meta/writers/`. Versions are ordered by a hybrid logical clock
+  `(updated_at, counter, writer)`. Version 1 folders are read and upgraded on
+  open.
+- Torn-tail repair touches only this writer's own files; other writers' files
+  are never modified, and an unterminated last line is skipped and reported.
+  `compact` refuses to run on a shared store (`SharedStoreError`).
 - Crash safety: one flush and fsync per multi-record transaction, replay of
   an interrupted transaction on open, torn-line repair.
 - `GraphStore.execute` / `execute_many`: a documented subset of openCypher,

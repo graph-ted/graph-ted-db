@@ -1,6 +1,6 @@
 # graph-ted-db on-disk format
 
-**Format version:** 1
+**Format version:** 2 (per-writer layout). Version 1 folders are read and upgraded on open; see [Upgrading from v1](#upgrading-from-v1).
 
 This is the on-disk format of **graph-ted-db**, local property-graph storage for Python and the database component of the **graph-ted** kit. A file-sync client may copy, delay, or fork these files. Readers must treat the folder as eventually consistent and merge by record, not by whole file.
 
@@ -18,18 +18,34 @@ One folder is one graph.
 <graph>/
   graph.json                 # required
   nodes/
-    00.jsonl                 # created on first write to that shard
-    ff.jsonl
+    00.<writer>.jsonl        # one file per shard per writer, created on first write
+    ff.<writer>.jsonl
   edges/
-    00.jsonl
+    00.<writer>.jsonl
   vectors/
     <property>/
-      00.jsonl
+      00.<writer>.jsonl
   meta/
     labels.json              # optional hint; rebuildable
-    deleted.jsonl            # tombstones; synced
+    deleted.<writer>.jsonl   # this writer's tombstones; synced
+    writers/
+      <writer>.json          # one registration file per writer
   logs/                      # optional append-only mutation log; not required to open
 ```
+
+## Writers
+
+Every device (more exactly, every app-data directory) that writes to a graph has a **writer id**: `w` followed by 16 random lowercase hex digits, for example `w3f9c0a17be42d851`. It is generated with a cryptographic random source and is never derived from a user, OS, or host name. It is stored only in local app data (`<app-data>/graph-ted-db/<graph-id>/writer.json`), never in the graph folder. If that file is lost, the device creates a **new** id and never reuses an old one; the old id's files simply become another writer's files.
+
+A writer **only ever appends to, or rewrites, files whose name carries its own id**. No file in `nodes/`, `edges/`, `vectors/` or the tombstones has two writers, so a sync client never has to choose between two versions of the same file, and adding different records on several devices at once cannot lose data. Processes on one device share the device's writer id and are serialized by the local `LOCK`.
+
+Each writer creates `meta/writers/<writer>.json` once:
+
+```json
+{"writer": "w3f9c0a17be42d851", "format_version": 2, "created_at": "2026-10-09T18:00:00.000000Z"}
+```
+
+The writers list is the set of these files. A writer file whose registration has not arrived yet is reported by `doctor` (usually the sync is still running).
 
 Do **not** pre-create all 256 shard files. Empty files still count against a sync service's file-count limits. Create a shard file when the first record for that shard is written.
 
@@ -40,7 +56,8 @@ UTF-8 JSON object.
 | Field | Type | Required | Meaning |
 |---|---|---|---|
 | `format` | string | yes | Always `"graph-ted-db"` |
-| `format_version` | int | yes | `1` |
+| `format_version` | int | yes | `2` |
+| `layout` | string | no | `"per-writer"` in v2 |
 | `id` | string | yes | Graph UUID (lowercase, hyphenated) |
 | `name` | string | yes | Human name; not unique |
 | `created_at` | string | yes | UTC timestamp |
@@ -53,7 +70,8 @@ Example:
 ```json
 {
   "format": "graph-ted-db",
-  "format_version": 1,
+  "format_version": 2,
+  "layout": "per-writer",
   "id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
   "name": "team-memory",
   "created_at": "2026-08-25T15:04:05.000000Z",
@@ -61,13 +79,13 @@ Example:
 }
 ```
 
-Opening a folder whose `format` is not `graph-ted-db`, or whose `format_version` is greater than the process understands, is an error. A lower version may be upgraded in place by a later format revision; v1 has no predecessor.
+Opening a folder whose `format` is not `graph-ted-db`, or whose `format_version` is greater than the process understands, is an error. A lower version is upgraded in place on open (see [Upgrading from v1](#upgrading-from-v1)).
 
 ## Identifiers
 
 - Record `id` values are UUID strings: lowercase, 8-4-4-4-12 with hyphens.
 - Shard assignment uses the **first byte** of the UUID (the first two hex characters of the hyphenated form).
-- v1 `shard_fanout` is 256, so shard filenames are `00.jsonl` … `ff.jsonl` (lowercase hex).
+- `shard_fanout` is 256, so shard stems are `00` … `ff` (lowercase hex) and v2 file names are `00.<writer>.jsonl` … `ff.<writer>.jsonl`.
 - Example: `550e8400-e29b-41d4-a716-446655440000` → shard `55`.
 
 ## Timestamps
@@ -90,22 +108,24 @@ A shard may contain **multiple versions of the same id**. The live version is se
 
 Lines that are not valid JSON objects are skipped and should be reported by `graph-ted-db doctor`.
 
-A hard halt can leave a shard **without a trailing newline** (a torn last line). An unterminated last line is never data: readers skip it and report it (`skipped ... (unterminated)`). Only the device that wrote a file repairs it: before every append, and on `GraphStore.open` / `doctor`, it **truncates** its own files from the last newline (or to empty). A file written by another device is **never modified**, because in a synced folder a missing newline usually means the sync client has not finished delivering it; `doctor` lists it as not modified. Appending to such a file starts the new record on a fresh line, so the fragment stays a separate skipped line. Which files a device wrote is kept in app-data (`owned.json`), never in the graph folder. That is format recovery, not LWW.
+A hard halt can leave a shard **without a trailing newline** (a torn last line). An unterminated last line is never data: readers skip it and report it (`skipped ... (unterminated)`). Only the writer that owns a file (its id is in the name) repairs it: before every append, and on `GraphStore.open` / `doctor`, it **truncates** its own files from the last newline (or to empty). A file of another writer, or a v1 shared file, is **never modified**, because in a synced folder a missing newline usually means the sync client has not finished delivering it; `doctor` lists it as not modified. That is format recovery, not LWW.
 
-`compact` rewrites shards, so it refuses to run on a shared store (any record file another device wrote, or any conflict copy).
+`compact` rewrites shards, so it refuses to run on a shared store (any non-empty record file of another writer, any v1 shared file, or any conflict copy). Cleanup for shared stores is not available yet.
 
 A transaction that writes several records appends its lines and then flush+fsyncs each file once. A local write-ahead record is fsynced before those shard writes and removed only after the shard fsync. If the process dies before that record is durable, the transaction is absent. If it dies after the record is durable but before the shard fsync finishes, the next open replays the record so the transaction is complete. An autocommit statement that writes one record fsyncs that line and does not write a separate commit record: the line is present, or a torn tail is truncated and the record is absent. A torn final line is not returned as a record.
 
 ## Node record
 
-Path: `nodes/<shard>.jsonl`
+Path: `nodes/<shard>.<writer>.jsonl`
 
 ```json
 {
   "id": "550e8400-e29b-41d4-a716-446655440000",
   "v": 1,
   "updated_at": "2026-08-25T15:04:05.000000Z",
-  "updated_by": "alice",
+  "updated_by": "",
+  "writer": "w3f9c0a17be42d851",
+  "counter": 0,
   "labels": ["Entity"],
   "props": {
     "name": "Kamala Harris",
@@ -121,6 +141,8 @@ Path: `nodes/<shard>.jsonl`
 | `v` | int | yes (record schema; `1`) |
 | `updated_at` | timestamp | yes |
 | `updated_by` | string | no (empty if unknown) |
+| `writer` | writer id | v2 writers always set it; empty or absent in v1 records |
+| `counter` | int ≥ 0 | v2 (hybrid logical clock counter; `0` if absent) |
 | `labels` | array of strings | yes (may be empty) |
 | `props` | object | yes |
 
@@ -128,7 +150,7 @@ Path: `nodes/<shard>.jsonl`
 
 ## Edge record
 
-Path: `edges/<shard>.jsonl` — shard is taken from the **edge id**, not from/to.
+Path: `edges/<shard>.<writer>.jsonl` — shard is taken from the **edge id**, not from/to.
 
 ```json
 {
@@ -156,7 +178,7 @@ Path: `edges/<shard>.jsonl` — shard is taken from the **edge id**, not from/to
 
 ## Vector record
 
-Path: `vectors/<property>/<shard>.jsonl` — shard is the **subject id** (node or edge that owns the embedding). `<property>` is `[a-z][a-z0-9_]*` (examples: `name_embedding`, `fact_embedding`).
+Path: `vectors/<property>/<shard>.<writer>.jsonl` — shard is the **subject id** (node or edge that owns the embedding). `<property>` is `[a-z][a-z0-9_]*` (examples: `name_embedding`, `fact_embedding`).
 
 ```json
 {
@@ -176,7 +198,7 @@ A missing vector shard is allowed: search that needs it degrades (no vector hits
 
 ## Tombstones
 
-Path: `meta/deleted.jsonl`
+Path: `meta/deleted.<writer>.jsonl`
 
 ```json
 {
@@ -202,12 +224,18 @@ LWW only answers: when two complete versions of the **same** node, edge, or vect
 2. Apply tombstones as candidate versions with `kind` set.
 3. Pick **one whole candidate**. The winner is always a record some writer actually wrote (or a tombstone they wrote). Fields from the loser are not merged in.
 
-Deterministic tie-break, in order:
+Each version carries a **hybrid logical clock** `(updated_at, counter, writer)`. A writer never stamps a new version earlier than the greatest `(updated_at, counter)` it has read from the store or written itself: it uses `max(wall clock, greatest seen)`, and if that equals the greatest seen time it increments `counter`. So an edit made after seeing a record always wins over that record, even when this device's clock is behind. Records written as-is with an explicit older `updated_at` keep it (and lose).
 
-1. Greater `updated_at` wins.
-2. If equal, a tombstone beats a live record.
-3. If still equal, greater `v` wins.
-4. If still equal, lexicographically greater JSON line wins (last resort, so a replica can pick one).
+Deterministic order, compared as a tuple (greater wins):
+
+1. `updated_at` (as an instant).
+2. `counter`.
+3. `writer` (string comparison; v1 records have the empty writer).
+4. A tombstone beats a live record.
+5. Greater `v`.
+6. Lexicographically greater JSON line (last resort).
+
+Every device computes the same order, so after sync all devices pick the same winner.
 
 ### What LWW may lose
 
@@ -219,7 +247,7 @@ If Alice changes `props.name` and Bob changes `props.summary` on the same node w
 - Must not produce a live node whose `props`/`labels` were taken half from Alice and half from Bob.
 - Must not leave a **live edge whose endpoints are not live nodes**. `delete_node` tombstones incident edges (DETACH). Reads skip dangling edges. `doctor` reports any that remain; `doctor --fix` tombstones them. In a synced folder an edge can arrive before its nodes, and a tombstone is permanent on every device, so run `--fix` only after sync has finished. Compact omits dangling winners from the canonical shard.
 
-Writer clocks can skew. Application-level history (for example an episode log) is the user-visible change log; this rule only decides the materialised record.
+Limits: the clock only corrects skew between versions a writer has **seen**. Two devices that edit the same record without having synced still order by their own wall clocks, so a device whose clock runs fast wins those concurrent edits. A device with a clock far in the future pulls everyone's clock forward to its time. Application-level history (for example an episode log) is the user-visible change log; this rule only decides the materialised record.
 
 ## Sync-client conflict copies
 
@@ -229,7 +257,7 @@ Sync clients fork a file when both sides edited it. Names vary; v1 treats an ext
 - it ends in `.jsonl`, **or** it is `NN.jsonl` followed by a conflict suffix (`.conflict1`, `.<name>-conflict2`, `..path1`, `..path2`), which is how rclone bisync renames both sides of a conflict, and
 - the stem starts with the shard hex (`00`, `ff`, …) or contains the canonical filename stem.
 
-The same rule applies to `meta/deleted.jsonl`, so forked tombstones still apply.
+The same rule applies to `meta/deleted.jsonl`, so forked tombstones still apply. In v2, every writer's file `NN.<writer>.jsonl` is part of the shard too (it is not a conflict copy), and so are conflict copies of it (`NN.<writer>.jsonl.conflict1`). Because v2 files have one writer, a sync client should never need to make conflict copies; the rule stays for v1 files and odd clients.
 
 Examples that must be ingested and union-merged:
 
@@ -273,7 +301,9 @@ Suggested location: platform app data / cache dir `graph-ted-db/<graph-id>/`.
 | `fulltext/` | inverted index for BM25 |
 | `vectors.bin` | unpacked f32 cache |
 | `adj.jsonl` | adjacency |
-| `LOCK` | single-writer lock for this machine |
+| `LOCK` | cross-process lock for this machine |
+| `writer.json` | this device's random writer id (**not** rebuildable: losing it starts a new id) |
+| `wal/` | local write-ahead record for an in-flight transaction |
 
 These must not be placed in the synced graph folder. v1 writes `catalog.jsonl`, `adj.jsonl`, and `meta.json` on open (always rebuilt from shards).
 
@@ -283,3 +313,7 @@ These must not be placed in the synced graph folder. v1 writes `catalog.jsonl`, 
 - Not one file per node/edge (sync services limit file counts).
 - Not CRDT merge of property maps. Whole-record LWW: one complete object wins; concurrent field-level edits on the same id can lose the non-winning write, they must not mix into a corrupt object.
 - Not encrypted at rest by the library. Security is as strong as your storage and network (encrypted volumes and an airgap can be very strong; synced or shared folders are not). The folder ACL / disk encryption / network exposure you choose is the security boundary — see [Security](security.md).
+
+## Upgrading from v1
+
+A v1 folder has shared files (`nodes/NN.jsonl`, `meta/deleted.jsonl`) that any writer appended to. A v2 library reads them as part of each shard, never writes them again, and never modifies them (they are "v1 shared files" in `doctor`). On open it sets `format_version` to `2` and `layout` to `"per-writer"` in `graph.json`. A v1 library refuses to open the upgraded folder, which is intended: it would write to shared files again.

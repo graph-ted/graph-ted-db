@@ -17,6 +17,8 @@ LiveRecord = NodeRecord | EdgeRecord | VectorRecord
 class LwwCandidate:
     updated_at: datetime
     is_tombstone: bool
+    counter: int
+    writer: str
     v: int
     json_line: str
     payload: LiveRecord | Tombstone
@@ -26,6 +28,8 @@ def candidate_from_live(record: LiveRecord) -> LwwCandidate:
     return LwwCandidate(
         updated_at=parse_timestamp(record.updated_at),
         is_tombstone=False,
+        counter=record.counter,
+        writer=record.writer,
         v=record.v,
         json_line=record.to_jsonl(),
         payload=record,
@@ -36,6 +40,8 @@ def candidate_from_tombstone(record: Tombstone) -> LwwCandidate:
     return LwwCandidate(
         updated_at=parse_timestamp(record.updated_at),
         is_tombstone=True,
+        counter=record.counter,
+        writer=record.writer,
         v=record.v,
         json_line=record.to_jsonl(),
         payload=record,
@@ -43,9 +49,13 @@ def candidate_from_tombstone(record: Tombstone) -> LwwCandidate:
 
 
 def _sort_key(c: LwwCandidate) -> tuple[Any, ...]:
-    # Greater tuple wins. Tombstone-beats-live is encoded as 1 vs 0.
+    # Greater tuple wins: hybrid logical clock (wall time, counter, writer
+    # id), then tombstone-beats-live (1 vs 0), then the bytes. Every device
+    # computes the same order, so all devices converge on the same winner.
     return (
         c.updated_at,
+        c.counter,
+        c.writer,
         1 if c.is_tombstone else 0,
         c.v,
         c.json_line,
