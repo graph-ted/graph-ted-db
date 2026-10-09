@@ -99,13 +99,18 @@ def crash_if(name: str) -> None:
 
 def _die_during_fsync(fd: int) -> None:
     """SIGKILL during ``os.fsync``. Does not return."""
+    # Capture the target before forking. The child must never use os.getppid():
+    # if this process has already died, the child is reparented to a subreaper
+    # (for example ``systemd --user``) and would SIGKILL the whole user session.
+    parent = os.getpid()
     try:
         pid = os.fork()
     except OSError:
-        os.kill(os.getpid(), signal.SIGKILL)
+        os.kill(parent, signal.SIGKILL)
         return
     if pid == 0:
-        os.kill(os.getppid(), signal.SIGKILL)
+        if os.getppid() == parent:
+            os.kill(parent, signal.SIGKILL)
         os._exit(0)
     os.fsync(fd)
     os.kill(os.getpid(), signal.SIGKILL)
