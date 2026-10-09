@@ -194,6 +194,7 @@ def main(argv: list[str] | None = None) -> int:
         return _dispatch(args)
     except (
         OSError,
+        RuntimeError,
         GraphFormatError,
         FileExistsError,
         ValueError,

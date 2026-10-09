@@ -32,6 +32,11 @@ def index_dir_for(graph_id: str, data_dir: Path | None = None) -> Path:
     return (data_dir or default_data_dir()) / graph_id / "index"
 
 
+def owned_path_for(graph_id: str, data_dir: Path | None = None) -> Path:
+    """Files this device has appended to. Local only, never synced."""
+    return (data_dir or default_data_dir()) / graph_id / "owned.json"
+
+
 def wal_dir_for(graph_id: str, data_dir: Path | None = None) -> Path:
     """Local write-ahead log. Never stored in the synced graph folder."""
     return (data_dir or default_data_dir()) / graph_id / "wal"
