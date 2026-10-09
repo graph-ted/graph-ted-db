@@ -110,6 +110,20 @@ class GraphMeta:
 
 @dataclass(frozen=True)
 class NodeRecord:
+    """One version of a node, as stored in a `nodes/` shard.
+
+    `GraphStore.make_node` builds these for you. Build one directly to write
+    an exact record with `GraphStore.put_node`.
+
+    Attributes:
+        id: Node UUID.
+        updated_at: UTC timestamp of this version (last write wins).
+        labels: Node labels.
+        props: JSON-compatible property values.
+        updated_by: Optional author string; empty unless the writer sets one.
+        v: Record schema version.
+    """
+
     id: str
     updated_at: str
     labels: tuple[str, ...]
@@ -147,6 +161,22 @@ class NodeRecord:
 
 @dataclass(frozen=True)
 class EdgeRecord:
+    """One version of an edge (relationship), as stored in an `edges/` shard.
+
+    `GraphStore.make_edge` builds these for you; `GraphStore.put_edge` writes
+    one as-is.
+
+    Attributes:
+        id: Edge UUID.
+        updated_at: UTC timestamp of this version (last write wins).
+        type: Relationship type, e.g. `"KNOWS"`.
+        from_id: Start node id.
+        to_id: End node id.
+        props: JSON-compatible property values.
+        updated_by: Optional author string; empty unless the writer sets one.
+        v: Record schema version.
+    """
+
     id: str
     updated_at: str
     type: str
@@ -187,6 +217,22 @@ class EdgeRecord:
 
 @dataclass(frozen=True)
 class VectorRecord:
+    """An embedding for a node or edge, stored under `vectors/<property>/`.
+
+    Build one with `VectorRecord.from_floats` and write it with
+    `GraphStore.put_vector`; read the values back with `floats()`.
+
+    Attributes:
+        id: Id of the node or edge that owns the embedding.
+        updated_at: UTC timestamp of this version (last write wins).
+        dim: Number of dimensions.
+        vec_b64: The vector as base64 little-endian float32.
+        property: Vector property name, e.g. `"name_embedding"`.
+        updated_by: Optional author string; empty unless the writer sets one.
+        v: Record schema version.
+        dtype: Encoding of `vec_b64` (`"f32le"`).
+    """
+
     id: str
     updated_at: str
     dim: int
@@ -211,6 +257,7 @@ class VectorRecord:
         return json.dumps(self.to_dict(), separators=(",", ":"), ensure_ascii=False)
 
     def floats(self) -> tuple[float, ...]:
+        """Decode the stored vector to a tuple of floats."""
         raw = base64.b64decode(self.vec_b64, validate=True)
         expected = self.dim * 4
         if len(raw) != expected:
@@ -228,6 +275,17 @@ class VectorRecord:
         updated_by: str = "",
         v: int = 1,
     ) -> VectorRecord:
+        """Build a record from float values (stored as little-endian float32).
+
+        Args:
+            id: Id of the node or edge that owns the embedding.
+            property: Vector property name, e.g. `"name_embedding"`.
+            values: The embedding.
+            updated_at: Timestamp string or timezone-aware `datetime`,
+                e.g. `datetime.now(timezone.utc)`.
+            updated_by: Optional author string.
+            v: Record schema version.
+        """
         dim = len(values)
         raw = struct.pack(f"<{dim}f", *values)
         ts = updated_at if isinstance(updated_at, str) else format_timestamp(updated_at)
@@ -275,6 +333,20 @@ class VectorRecord:
 
 @dataclass(frozen=True)
 class Tombstone:
+    """A deletion marker in `meta/deleted.jsonl`, returned by the `delete_*` methods.
+
+    A tombstone wins over a live record with the same id unless that record
+    has a newer `updated_at`.
+
+    Attributes:
+        id: Id of the deleted node, edge, or vector owner.
+        kind: `"node"`, `"edge"`, or `"vector"`.
+        updated_at: UTC timestamp of the deletion.
+        updated_by: Optional author string; empty unless the writer sets one.
+        v: Record schema version.
+        property: Vector property name, for `kind == "vector"` only.
+    """
+
     id: str
     kind: Kind
     updated_at: str

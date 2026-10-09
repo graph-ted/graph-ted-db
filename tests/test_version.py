@@ -33,3 +33,17 @@ def test_cli_version(capsys) -> None:
     except SystemExit as exc:
         assert exc.code == 0
     assert capsys.readouterr().out.strip() == f"graph-ted-db {graph_ted_db.__version__}"
+
+
+def test_public_names_exported() -> None:
+    for name in (
+        "GraphStore",
+        "init_graph",
+        "CypherError",
+        "NodeRecord",
+        "EdgeRecord",
+        "VectorRecord",
+        "Tombstone",
+    ):
+        assert name in graph_ted_db.__all__
+        assert getattr(graph_ted_db, name) is not None

@@ -14,6 +14,8 @@ First public release.
 
 - `GraphStore` and `init_graph`: a property graph stored in a folder of
   sharded JSONL files, opened and queried in-process with no server.
+- Record types exported from `graph_ted_db`: `NodeRecord`, `EdgeRecord`,
+  `VectorRecord`, `Tombstone`.
 - Nodes, edges and embedding vectors: `make_node` / `make_edge`, `put_*`,
   `get_*`, `iter_nodes` / `iter_edges`, `delete_*` (tombstones).
 - Per-record last-write-wins, and reading of sync-tool conflict copies
