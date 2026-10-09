@@ -16,6 +16,10 @@ store = GraphStore.open("./my-graph")
 | --- | --- |
 | `GraphStore` | Open a graph folder and read or write it |
 | `init_graph` | Create an empty graph folder |
+| `NodeRecord` | One node version: returned by `make_node` / `get_node` / `iter_nodes`, accepted by `put_node` |
+| `EdgeRecord` | One edge version: returned by `make_edge` / `get_edge` / `iter_edges`, accepted by `put_edge` |
+| `VectorRecord` | An embedding for a node or edge: `get_vector` / `put_vector` |
+| `Tombstone` | Deletion marker returned by `delete_node` / `delete_edge` / `delete_vector` |
 | `CypherError` | Invalid query, or syntax outside the supported openCypher subset |
 | `__version__` | Package version string (`graph_ted_db.__version__`) |
 
@@ -33,6 +37,34 @@ store = GraphStore.open("./my-graph")
 ::: graph_ted_db.init_graph
     options:
       show_root_heading: false
+
+## NodeRecord
+
+::: graph_ted_db.NodeRecord
+    options:
+      show_root_heading: false
+      members: false
+
+## EdgeRecord
+
+::: graph_ted_db.EdgeRecord
+    options:
+      show_root_heading: false
+      members: false
+
+## VectorRecord
+
+::: graph_ted_db.VectorRecord
+    options:
+      show_root_heading: false
+      members: [from_floats, floats]
+
+## Tombstone
+
+::: graph_ted_db.Tombstone
+    options:
+      show_root_heading: false
+      members: false
 
 ## CypherError
 
