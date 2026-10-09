@@ -28,6 +28,7 @@ from graph_ted_db.store.jsonl import (
     append_jsonl,
     crash_if,
     fsync_directory,
+    has_unterminated_tail,
     iter_json_objects,
     repair_torn_jsonl,
     replace_json_file,
@@ -37,6 +38,7 @@ from graph_ted_db.store.lock import (
     exclusive_lock,
     index_dir_for,
     lock_path_for,
+    owned_path_for,
     wal_dir_for,
 )
 from graph_ted_db.store.lww import resolve
@@ -56,6 +58,10 @@ from graph_ted_db.store.records import (
 )
 
 
+class SharedStoreError(RuntimeError):
+    """The operation would rewrite files another device also writes."""
+
+
 @dataclass
 class DoctorReport:
     """Result of `GraphStore.doctor` / `graph-ted-db doctor`.
@@ -67,6 +73,7 @@ class DoctorReport:
     """
 
     torn_repaired: list[str] = field(default_factory=list)
+    foreign_torn: list[str] = field(default_factory=list)
     tmp_removed: list[str] = field(default_factory=list)
     labels_rebuilt: bool = False
     dangling_edges_found: list[str] = field(default_factory=list)
@@ -78,6 +85,7 @@ class DoctorReport:
     def summary(self) -> str:
         lines = [
             f"torn lines repaired: {len(self.torn_repaired)}",
+            f"unterminated tails left in other devices' files: {len(self.foreign_torn)}",
             f"tmp files removed: {len(self.tmp_removed)}",
             f"labels.json rebuilt: {self.labels_rebuilt}",
             f"dangling edges found: {len(self.dangling_edges_found)}",
@@ -87,6 +95,8 @@ class DoctorReport:
         ]
         for item in self.torn_repaired:
             lines.append(f"  repaired {item}")
+        for item in self.foreign_torn:
+            lines.append(f"  not modified (still syncing?) {item}")
         verb = "tombstoned" if self.fix else "would tombstone"
         for item in self.dangling_edges_found:
             lines.append(f"  dangling ({verb}) {item}")
@@ -128,6 +138,9 @@ class GraphStore(_GraphStoreAliases):
         self._index: LocalIndex | None = None
         self._index_fp: tuple[tuple[str, int, int], ...] | None = None
         self._wal_dir = wal_dir_for(self.meta.id, data_dir)
+        self._owned_path = owned_path_for(self.meta.id, data_dir)
+        self._owned: set[str] = self._load_owned()
+        self._foreign_torn: list[str] = []
         self._tx: _Txn | None = None
         self._lock_depth = 0
         # flock serializes other processes. It does not cover the
@@ -201,7 +214,7 @@ class GraphStore(_GraphStoreAliases):
 
     def _disk_put_node(self, record: NodeRecord) -> None:
         path = self.paths.node_shard(record.id)
-        append_jsonl(path, record.to_jsonl())
+        self._append(path, record.to_jsonl())
         self._remember_labels(node_labels=record.labels)
         if self._index is not None:
             self._index.upsert_node(record)
@@ -296,7 +309,7 @@ class GraphStore(_GraphStoreAliases):
 
     def _disk_put_edge(self, record: EdgeRecord) -> None:
         path = self.paths.edge_shard(record.id)
-        append_jsonl(path, record.to_jsonl())
+        self._append(path, record.to_jsonl())
         self._remember_labels(relationship_types=(record.type,))
         if self._index is not None:
             self._index.upsert_edge(record)
@@ -368,7 +381,7 @@ class GraphStore(_GraphStoreAliases):
 
     def _disk_put_vector(self, record: VectorRecord) -> None:
         path = self.paths.vector_shard(record.property, record.id)
-        append_jsonl(path, record.to_jsonl())
+        self._append(path, record.to_jsonl())
         self._remember_labels(vector_properties=(record.property,))
         self._touch_index(path)
 
@@ -405,7 +418,7 @@ class GraphStore(_GraphStoreAliases):
             updated_by=updated_by,
         )
         with self._lock():
-            append_jsonl(self.paths.deleted_jsonl, tomb.to_jsonl())
+            self._append(self.paths.deleted_jsonl, tomb.to_jsonl())
             self._touch_index(self.paths.deleted_jsonl)
         return tomb
 
@@ -651,12 +664,27 @@ class GraphStore(_GraphStoreAliases):
                 pass
 
     def _disk_delete_tomb(self, tomb: Tombstone) -> None:
-        append_jsonl(self.paths.deleted_jsonl, tomb.to_jsonl())
+        self._append(self.paths.deleted_jsonl, tomb.to_jsonl())
         self._touch_index(self.paths.deleted_jsonl)
 
     def compact(self) -> None:
-        """Rewrite canonical shards to winning records. Leaves conflict copies."""
+        """Rewrite canonical shards to winning records. Leaves conflict copies.
+
+        Refused on a shared store (any record file this device did not write,
+        or any conflict copy): rewriting a file another device also appends to
+        would drop its records once the sync client picks a version.
+
+        Raises:
+            SharedStoreError: The store is shared.
+        """
         with self._lock():
+            foreign = self._foreign_record_files()
+            if foreign or self._conflict_copy_paths():
+                raise SharedStoreError(
+                    "compact is disabled on a shared store (files written by another device"
+                    " or conflict copies are present); cleanup for shared stores is not"
+                    " available yet"
+                )
             self._compact_nodes()
             self._compact_edges()
             self._compact_vectors()
@@ -675,6 +703,7 @@ class GraphStore(_GraphStoreAliases):
         report = DoctorReport(fix=fix)
         with self._lock():
             report.torn_repaired, report.tmp_removed = self._recover_files()
+            report.foreign_torn = list(self._foreign_torn)
             dangling = self._dangling_edges_unlocked()
             report.dangling_edges_found = [
                 f"{edge.id} type={edge.type} from={edge.from_id} to={edge.to_id}"
@@ -785,9 +814,51 @@ class GraphStore(_GraphStoreAliases):
 
     # --- internals ---
 
+    # --- ownership (which files this device writes) ---
+
+    def _rel(self, path: Path) -> str:
+        return path.resolve().relative_to(self.root).as_posix()
+
+    def _load_owned(self) -> set[str]:
+        try:
+            data = json.loads(self._owned_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return set()
+        files = data.get("files") if isinstance(data, dict) else None
+        return {f for f in files if isinstance(f, str)} if isinstance(files, list) else set()
+
+    def _owns(self, path: Path) -> bool:
+        return self._rel(path) in self._owned
+
+    def _claim(self, path: Path) -> bool:
+        """Record `path` as written by this device. Returns whether it was already ours."""
+        rel = self._rel(path)
+        if rel in self._owned:
+            return True
+        self._owned.add(rel)
+        self._owned_path.parent.mkdir(parents=True, exist_ok=True)
+        # No fsync: a lost claim only means a torn tail in this file is left
+        # in place and skipped, never that data is dropped.
+        tmp = self._owned_path.with_name(self._owned_path.name + ".tmp")
+        tmp.write_text(json.dumps({"files": sorted(self._owned)}), encoding="utf-8")
+        os.replace(tmp, self._owned_path)
+        return False
+
+    def _append(self, path: Path, line: str) -> None:
+        # Persist the claim first, so a crash mid-append still repairs it.
+        append_jsonl(path, line, repair=self._claim(path))
+
+    def _foreign_record_files(self) -> list[Path]:
+        return [
+            p
+            for p in self._managed_files()
+            if p.suffix.lower() == ".jsonl" and p.stat().st_size > 0 and not self._owns(p)
+        ]
+
     def _recover_files(self) -> tuple[list[str], list[str]]:
         torn: list[str] = []
         tmp_removed: list[str] = []
+        self._foreign_torn: list[str] = []
         for path in self._managed_files():
             if path.name.endswith(".tmp"):
                 try:
@@ -797,6 +868,12 @@ class GraphStore(_GraphStoreAliases):
                     pass
                 continue
             if path.suffix.lower() == ".jsonl":
+                if not self._owns(path):
+                    # Another device's file: a missing newline usually means
+                    # the sync client has not finished. Never modify it.
+                    if has_unterminated_tail(path):
+                        self._foreign_torn.append(str(path))
+                    continue
                 discarded = repair_torn_jsonl(path)
                 if discarded:
                     torn.append(f"{path} ({discarded} bytes)")

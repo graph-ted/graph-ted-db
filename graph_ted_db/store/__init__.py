@@ -8,7 +8,7 @@ from graph_ted_db.store.format import (
     parse_timestamp,
     shard_id,
 )
-from graph_ted_db.store.graph import DoctorReport, GraphStore
+from graph_ted_db.store.graph import DoctorReport, GraphStore, SharedStoreError
 from graph_ted_db.store.init import GraphFormatError, init_graph, load_graph_meta
 from graph_ted_db.store.paths import GraphPaths
 from graph_ted_db.store.records import (
@@ -30,6 +30,7 @@ __all__ = [
     "GraphPaths",
     "GraphStore",
     "NodeRecord",
+    "SharedStoreError",
     "Tombstone",
     "VectorRecord",
     "format_timestamp",

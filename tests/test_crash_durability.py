@@ -343,6 +343,18 @@ def test_truncated_final_line_is_skipped(tmp_path: Path):
     edge_bytes = edge_shard.read_bytes()
     edge_shard.write_bytes(edge_bytes[:-6])
 
+    # Another device opening the same folder must not modify these files: a
+    # missing newline there may be a sync still in flight. It skips and reports.
+    before = {p: p.read_bytes() for p in (node_shard, deleted, edge_shard)}
+    other = GraphStore.open(root, data_dir=tmp_path / "other-device")
+    assert keep in _ids(other)
+    assert chopped_id not in _ids(other)
+    assert {p: p.read_bytes() for p in before} == before
+    assert any("unterminated" in item for item in other.skipped_lines)
+    assert set(other.doctor().foreign_torn) >= {str(node_shard)}
+    assert {p: p.read_bytes() for p in before} == before
+
+    # The writing device owns them, so it truncates the torn tails on open.
     reopened = GraphStore.open(root, data_dir=data)
     assert keep in _ids(reopened)
     assert chopped_id not in _ids(reopened)

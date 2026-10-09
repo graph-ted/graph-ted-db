@@ -69,6 +69,12 @@ def iter_json_objects(
             line = raw.strip()
             if not line:
                 continue
+            if not raw.endswith("\n"):
+                # An unterminated last line is never data: a writer died
+                # mid-append, or a sync client has not delivered the rest yet.
+                if skipped is not None:
+                    skipped.append(f"{path}:{lineno} (unterminated)")
+                continue
             try:
                 parsed = json.loads(line)
             except json.JSONDecodeError:
@@ -117,18 +123,19 @@ class _AppendBatch:
     def __init__(self) -> None:
         self._files: dict[Path, tuple[TextIO, bool]] = {}
 
-    def append(self, path: Path, line: str) -> None:
+    def append(self, path: Path, line: str, *, repair: bool = True) -> None:
         key = path.resolve()
         slot = self._files.get(key)
+        prefix = ""
         if slot is None:
             key.parent.mkdir(parents=True, exist_ok=True)
             created = not key.exists()
-            repair_torn_jsonl(key)
+            prefix = _prepare_append(key, repair)
             handle: TextIO = key.open("a", encoding="utf-8", newline="\n")
             slot = (handle, created)
             self._files[key] = slot
         handle = slot[0]
-        handle.write(line.rstrip("\n") + "\n")
+        handle.write(prefix + line.rstrip("\n") + "\n")
 
     def finish(self) -> None:
         items = list(self._files.items())
@@ -173,15 +180,40 @@ def append_batch() -> Iterator[None]:
         _local.batch = None
 
 
-def append_jsonl(path: Path, line: str) -> None:
+def has_unterminated_tail(path: Path) -> bool:
+    """True if the file is non-empty and does not end with a newline."""
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return False
+    if size == 0:
+        return False
+    with path.open("rb") as handle:
+        handle.seek(-1, os.SEEK_END)
+        return handle.read(1) != b"\n"
+
+
+def _prepare_append(path: Path, repair: bool) -> str:
+    """Make the next append start on a fresh line.
+
+    ``repair`` (this device's own file) truncates a torn tail. Otherwise the
+    file is not changed: the new record starts with a newline, so the foreign
+    fragment stays a separate, skipped-and-reported line.
+    """
+    if repair:
+        repair_torn_jsonl(path)
+        return ""
+    return "\n" if has_unterminated_tail(path) else ""
+
+
+def append_jsonl(path: Path, line: str, *, repair: bool = True) -> None:
     batch = getattr(_local, "batch", None)
     if isinstance(batch, _AppendBatch):
-        batch.append(path, line)
+        batch.append(path, line, repair=repair)
         return
     path.parent.mkdir(parents=True, exist_ok=True)
     created = not path.exists()
-    repair_torn_jsonl(path)
-    payload = line.rstrip("\n") + "\n"
+    payload = _prepare_append(path, repair) + line.rstrip("\n") + "\n"
     with path.open("a", encoding="utf-8", newline="\n") as handle:
         handle.write(payload)
         handle.flush()
