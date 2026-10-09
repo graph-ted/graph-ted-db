@@ -55,6 +55,11 @@ def main(argv: list[str] | None = None) -> int:
     init_p.add_argument("--exist-ok", action="store_true")
 
     info_p = sub.add_parser("info", help="print graph.json for a folder")
+    info_p.add_argument(
+        "--check",
+        action="store_true",
+        help="also open the store and print problem counts (skipped lines, files still syncing)",
+    )
     info_p.add_argument("path", type=Path)
 
     put_n = sub.add_parser("put-node", help="create or overwrite a node (LWW)")
@@ -216,6 +221,14 @@ def _dispatch(args: argparse.Namespace) -> int:
             f"{meta.name} id={meta.id} format={meta.format} "
             f"v{meta.format_version} created_at={meta.created_at}"
         )
+        if args.check:
+            store = _store(args.path)
+            problems = store.problems()
+            print(
+                f"writer={store.writer_id} writers={len(store.writers())} "
+                + " ".join(f"{k}={v}" for k, v in problems.items())
+            )
+            return 1 if any(problems.values()) else 0
         return 0
 
     store = _store(args.path)
