@@ -52,6 +52,7 @@ GENERIC_RULES: list[tuple[str, re.Pattern[str]]] = [
 SKIP_SUFFIXES = {".png", ".ico", ".woff2", ".woff", ".ttf", ".jpg", ".jpeg", ".gif", ".pdf", ".zip"}
 # This file and its test describe the patterns; they contain no real data.
 SELF_PATHS = {"scripts/pii_scan.py", "tests/test_pii_scan.py"}
+_DIFF_HEADER = re.compile(r"^diff --git a/(.+) b/(.+)$")
 
 
 @dataclass(frozen=True)
@@ -128,13 +129,22 @@ def scan_history(rules, root: Path = ROOT) -> list[Finding]:
     proc = subprocess.run(["git", "log", "--all", "-p", "--no-color", fmt], cwd=root,
                           capture_output=True, check=True)
     text = proc.stdout.decode("utf-8", errors="replace")
+    local_only = [r for r in rules if r[0].startswith("local-")]
     findings: list[Finding] = []
     commit = "?"
+    current: str | None = None  # file whose patch we are in; None = commit header
     for line in text.splitlines():
         if line.startswith("commit ") and len(line) == 47:
             commit = line[7:19]
+            current = None
             continue
-        for rule, pattern in rules:
+        if line.startswith("diff --git "):
+            m = _DIFF_HEADER.match(line)
+            current = m.group(2) if m else None
+        # Like the tracked-file scan: this script and its test describe the
+        # patterns with synthetic examples, so only local terms apply there.
+        active = local_only if current in SELF_PATHS else rules
+        for rule, pattern in active:
             if pattern.search(line):
                 findings.append(Finding(f"history:{commit}", 0, rule))
     # one finding per commit and rule is enough

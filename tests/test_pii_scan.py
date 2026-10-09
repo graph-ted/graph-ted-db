@@ -85,3 +85,43 @@ def test_local_terms_file(tmp_path: Path) -> None:
 def test_repository_is_clean() -> None:
     findings = pii.scan_files(pii.tracked_files(ROOT), pii.GENERIC_RULES, ROOT)
     assert findings == [], [str(f) for f in findings]
+
+
+def _git(repo: Path, *args: str) -> None:
+    import subprocess
+
+    subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
+
+
+def _history_repo(tmp_path: Path) -> Path:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    _git(repo, "config", "user.name", "Example Bot")
+    _git(repo, "config", "user.email", "bot@example.com")
+    (repo / "tests").mkdir()
+    (repo / "tests" / "test_pii_scan.py").write_text("FIXTURE = r'C:\\Users\\jdoe\\graph'\n")
+    (repo / "README.md").write_text("A clean readme.\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "init")
+    return repo
+
+
+def test_history_skips_own_fixtures(tmp_path: Path) -> None:
+    repo = _history_repo(tmp_path)
+    assert pii.scan_history(pii.GENERIC_RULES, root=repo) == []
+
+
+def test_history_still_flags_other_files_and_messages(tmp_path: Path) -> None:
+    repo = _history_repo(tmp_path)
+    (repo / "docs.md").write_text("cd /home/jdoe/projects\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "mail jane.doe@gmail.com")
+    rules = {f.rule for f in pii.scan_history(pii.GENERIC_RULES, root=repo)}
+    assert rules == {"home-path-unix", "personal-email"}
+
+
+def test_history_applies_local_terms_to_own_fixtures(tmp_path: Path) -> None:
+    repo = _history_repo(tmp_path)
+    rules = pii.load_local_rules(root=repo, env={"GTDB_PII_TERMS": "jdoe"})
+    assert {f.rule for f in pii.scan_history(rules, root=repo)} == {"local-term#1"}
