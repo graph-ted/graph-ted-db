@@ -9,13 +9,11 @@ import pytest
 
 from graph_ted_db.store import GraphStore, init_graph
 
-# Default: sibling checkout
-#   <parent>/graph-ted-db/
-#   <parent>/graph-ted/backend/cypher/helpers/
-# Override with env HELPER_DIR (absolute or relative path).
-_DEFAULT_HELPER_DIR = (
-    Path(__file__).resolve().parents[2] / "graph-ted" / "backend" / "cypher" / "helpers"
-)
+# Default: copies vendored in tests/fixtures/graph_ted_helpers/ (see the README
+# there), so CI runs these without the app repo. To test against a live app
+# checkout instead, set HELPER_DIR, e.g.
+#   HELPER_DIR=../graph-ted/backend/cypher/helpers pytest tests/test_cypher_helpers.py
+_DEFAULT_HELPER_DIR = Path(__file__).resolve().parent / "fixtures" / "graph_ted_helpers"
 HELPER_DIR = Path(os.environ.get("HELPER_DIR", str(_DEFAULT_HELPER_DIR))).expanduser().resolve()
 
 ALICE = "00000000-0000-4000-8000-0000000000a1"
