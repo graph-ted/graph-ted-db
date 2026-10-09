@@ -145,6 +145,20 @@ class GraphStore(_GraphStoreAliases):
 
     @classmethod
     def open(cls, root: str | Path, *, data_dir: Path | None = None) -> GraphStore:
+        """Open an existing graph folder.
+
+        Repairs torn lines, replays an interrupted transaction, and builds the
+        local index before returning.
+
+        Args:
+            root: The graph folder (created by `init_graph`).
+            data_dir: Where to keep the process lock and local index. Defaults
+                to `GRAPH_TED_DB_DATA` or the platform app-data directory,
+                never inside the graph folder.
+
+        Returns:
+            An open store.
+        """
         store = cls(root, data_dir=data_dir)
         with store._lock():
             store._recover_files()
@@ -172,6 +186,7 @@ class GraphStore(_GraphStoreAliases):
     # --- nodes ---
 
     def put_node(self, record: NodeRecord) -> NodeRecord:
+        """Write a node record as-is (last write wins). Returns the record."""
         with self._lock():
             self._put_node_unlocked(record)
         return record
@@ -193,6 +208,7 @@ class GraphStore(_GraphStoreAliases):
         self._touch_index(path)
 
     def get_node(self, record_id: str) -> NodeRecord | None:
+        """Return the live node with this id, or None if it is missing or deleted."""
         record_id = normalize_uuid(record_id)
         with self._lock():
             return self._get_node_unlocked(record_id)
@@ -249,6 +265,7 @@ class GraphStore(_GraphStoreAliases):
         return tomb
 
     def iter_nodes(self) -> Iterator[NodeRecord]:
+        """Yield every live node (the last-write-wins version of each id)."""
         with self._lock():
             out = self._lww_nodes_unlocked()
         yield from out
@@ -256,6 +273,11 @@ class GraphStore(_GraphStoreAliases):
     # --- edges ---
 
     def put_edge(self, record: EdgeRecord) -> EdgeRecord:
+        """Write an edge record as-is (last write wins). Returns the record.
+
+        Raises:
+            ValueError: If either endpoint is not a live node.
+        """
         with self._lock():
             self._put_edge_unlocked(record)
         return record
@@ -281,11 +303,13 @@ class GraphStore(_GraphStoreAliases):
         self._touch_index(path)
 
     def get_edge(self, record_id: str) -> EdgeRecord | None:
+        """Return the live edge with this id, or None if it is missing, deleted, or dangling."""
         record_id = normalize_uuid(record_id)
         with self._lock():
             return self._get_graph_edge_unlocked(record_id)
 
     def delete_edge(self, record_id: str, *, updated_by: str = "") -> Tombstone:
+        """Tombstone one edge. Returns the tombstone that was written."""
         record_id = normalize_uuid(record_id)
         tomb = Tombstone(
             id=record_id,
@@ -323,6 +347,7 @@ class GraphStore(_GraphStoreAliases):
         return tomb
 
     def iter_edges(self) -> Iterator[EdgeRecord]:
+        """Yield every live edge whose endpoints are both live nodes."""
         with self._lock():
             out = self._graph_edges_unlocked()
         yield from out
@@ -330,6 +355,7 @@ class GraphStore(_GraphStoreAliases):
     # --- vectors ---
 
     def put_vector(self, record: VectorRecord) -> VectorRecord:
+        """Write an embedding record (stored under `vectors/<property>/`). Returns the record."""
         with self._lock():
             self._put_vector_unlocked(record)
         return record
@@ -347,6 +373,11 @@ class GraphStore(_GraphStoreAliases):
         self._touch_index(path)
 
     def get_vector(self, property_name: str, record_id: str) -> VectorRecord | None:
+        """Return the live embedding `property_name` for a node or edge id, or None.
+
+        Raises:
+            ValueError: If `property_name` is not a valid vector property name.
+        """
         if not is_vector_property_name(property_name):
             raise ValueError(f"invalid vector property name: {property_name!r}")
         record_id = normalize_uuid(record_id)
@@ -362,6 +393,7 @@ class GraphStore(_GraphStoreAliases):
     def delete_vector(
         self, property_name: str, record_id: str, *, updated_by: str = ""
     ) -> Tombstone:
+        """Tombstone the embedding `property_name` of a node or edge. Returns the tombstone."""
         if not is_vector_property_name(property_name):
             raise ValueError(f"invalid vector property name: {property_name!r}")
         record_id = normalize_uuid(record_id)
@@ -387,6 +419,15 @@ class GraphStore(_GraphStoreAliases):
         record_id: str | None = None,
         updated_by: str = "",
     ) -> NodeRecord:
+        """Create or overwrite a node and return it.
+
+        Args:
+            labels: Node labels, e.g. `["Person"]`.
+            props: JSON-compatible property values.
+            record_id: UUID to write. A new random UUID is used when omitted;
+                an existing id is overwritten (last write wins).
+            updated_by: Optional author string stored on the record.
+        """
         rec = NodeRecord(
             id=normalize_uuid(record_id) if record_id else str(uuid4()),
             updated_at=format_timestamp(),
@@ -406,6 +447,19 @@ class GraphStore(_GraphStoreAliases):
         record_id: str | None = None,
         updated_by: str = "",
     ) -> EdgeRecord:
+        """Create or overwrite an edge and return it.
+
+        Args:
+            type: Relationship type, e.g. `"KNOWS"`.
+            from_id: Id of the live start node.
+            to_id: Id of the live end node.
+            props: JSON-compatible property values.
+            record_id: UUID to write. A new random UUID is used when omitted.
+            updated_by: Optional author string stored on the record.
+
+        Raises:
+            ValueError: If either endpoint is not a live node.
+        """
         rec = EdgeRecord(
             id=normalize_uuid(record_id) if record_id else str(uuid4()),
             updated_at=format_timestamp(),

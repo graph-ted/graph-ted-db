@@ -119,4 +119,4 @@ Contributing: see [CONTRIBUTING.md](https://github.com/graph-ted/graph-ted-db/bl
 
 ## Related
 
-graph-ted-db is the local store used by [graph-ted](https://github.com/graph-ted/graph-ted) standalone. Hosted deployments may use other backends. This repository is the database library only.
+graph-ted-db is the local store for the graph-ted toolkit ([graph-ted.com](https://graph-ted.com/)). This repository is the database library only.

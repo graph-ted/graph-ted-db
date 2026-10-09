@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from graph_ted_db import __version__
 from graph_ted_db.engine import CypherError
 from graph_ted_db.store import GraphFormatError, GraphStore, init_graph, load_graph_meta
 
@@ -42,6 +43,9 @@ def main(argv: list[str] | None = None) -> int:
         prog="graph-ted-db",
         description="Local property-graph storage. Open a folder and query it in-process; no database server for the default path.",
         epilog="The graphted-db command is the same entry point.",
+    )
+    parser.add_argument(
+        "--version", action="version", version=f"%(prog)s {__version__}"
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -131,9 +135,9 @@ def main(argv: list[str] | None = None) -> int:
         "serve",
         help="localhost HTTP daemon (POST /cypher, GET /health); see docs/http.md",
     )
-    serve_p.add_argument("path", type=Path)
-    serve_p.add_argument("--host", default=None)
-    serve_p.add_argument("--port", type=int, default=None)
+    serve_p.add_argument("path", type=Path, help="graph folder to serve")
+    serve_p.add_argument("--host", default=None, help="bind address (default 127.0.0.1)")
+    serve_p.add_argument("--port", type=int, default=None, help="TCP port (default 8099)")
     serve_p.add_argument(
         "--token",
         default=None,

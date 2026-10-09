@@ -131,9 +131,9 @@ class Parser:
             return self.parse_call_clause()
         if self.at("DROP", "SHOW", "REMOVE"):
             return self.parse_ddl_rest(self.cur.kind.lower())
+        word = self.cur.value if self.cur.kind == "IDENT" else self.cur.kind
         raise CypherError(
-            f"unsupported clause starting with {self.cur.kind}; "
-            "extend parse_clause() to add it",
+            f"unsupported clause {word}: not in graph-ted-db's openCypher subset",
             pos=self.cur.pos,
         )
 
