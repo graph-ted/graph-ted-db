@@ -1,5 +1,7 @@
 """README quick start, run against an installed graph-ted-db (release smoke test)."""
-import tempfile, os
+import os
+import tempfile
+
 from graph_ted_db import GraphStore, init_graph
 
 d = os.path.join(tempfile.mkdtemp(), "my-graph")
