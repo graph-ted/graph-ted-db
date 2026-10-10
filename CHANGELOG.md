@@ -6,6 +6,10 @@ version may include breaking changes; they are called out under **Changed**.
 
 ## [Unreleased]
 
+### Added
+
+- `py.typed` marker (PEP 561): type checkers use graph-ted-db's inline types.
+
 ## [0.1.1] - 2026-10-10
 
 ### Added
