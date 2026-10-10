@@ -7,6 +7,12 @@ on:
         description: "Version to install from TestPyPI"
         required: true
         default: "0.1.0"
+      index:
+        description: "Install from"
+        required: true
+        type: choice
+        default: testpypi
+        options: [testpypi, pypi]
 
 permissions:
   contents: read
@@ -33,7 +39,11 @@ jobs:
           python -m venv "$RUNNER_TEMP/v"
           if [ -f "$RUNNER_TEMP/v/Scripts/python.exe" ]; then PY="$RUNNER_TEMP/v/Scripts/python.exe"; else PY="$RUNNER_TEMP/v/bin/python"; fi
           echo "PY=$PY" >> "$GITHUB_ENV"
-          "$PY" -m pip install -q --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ "graph-ted-db==${{ inputs.version }}"
+          if [ "${{ inputs.index }}" = "pypi" ]; then
+            "$PY" -m pip install -q --no-cache-dir "graph-ted-db==${{ inputs.version }}"
+          else
+            "$PY" -m pip install -q --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ "graph-ted-db==${{ inputs.version }}"
+          fi
       - name: Quick start
         run: |
           cd "$RUNNER_TEMP"
