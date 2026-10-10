@@ -45,6 +45,9 @@ graphted-db = "graph_ted_db.cli:main"
 [tool.setuptools.packages.find]
 include = ["graph_ted_db*"]
 
+[tool.setuptools.package-data]
+graph_ted_db = ["py.typed"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
