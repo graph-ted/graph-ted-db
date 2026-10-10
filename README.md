@@ -120,7 +120,7 @@ openCypher is a trademark of Neo4j, Inc. Other names are trademarks of their res
 
 ## Versioning
 
-Pre-1.0 (`0.1.0`). Until 1.0.0, minor versions may include breaking changes; they are noted in release notes. From 1.0.0, breaking changes bump the major version.
+Pre-1.0 (`0.1.x`). Until 1.0.0, minor versions may include breaking changes; they are noted in release notes. From 1.0.0, breaking changes bump the major version.
 
 ## Development
 
