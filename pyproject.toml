@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "graph-ted-db"
-version = "0.1.0"
+version = "0.1.1"
 description = "Local property-graph storage for Python. Data lives in a folder; open and query it in-process, with no database server for the default path."
 readme = "README.md"
 requires-python = ">=3.10"

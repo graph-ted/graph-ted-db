@@ -6,6 +6,8 @@ version may include breaking changes; they are called out under **Changed**.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-10
+
 ### Added
 
 - App metadata files: `GraphStore.meta_put` / `meta_list` keep small JSON documents
@@ -77,5 +79,6 @@ First public release.
   or over HTTP.
 - Documentation site with `llms.txt` and `llms-full.txt`.
 
-[Unreleased]: https://github.com/graph-ted/graph-ted-db/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/graph-ted/graph-ted-db/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/graph-ted/graph-ted-db/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/graph-ted/graph-ted-db/releases/tag/v0.1.0
