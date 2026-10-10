@@ -321,3 +321,30 @@ These must not be placed in the synced graph folder. v1 writes `catalog.jsonl`, 
 ## Upgrading from v1
 
 A v1 folder has shared files (`nodes/NN.jsonl`, `meta/deleted.jsonl`) that any writer appended to. A v2 library reads them as part of each shard, never writes them again, and never modifies them (they are "v1 shared files" in `doctor`). On its first write it sets `format_version` to `2` and `layout` to `"per-writer"` in `graph.json`. A v1 library refuses to open the upgraded folder, which is intended: it would write to shared files again.
+
+## App metadata files (`meta/<namespace>/`)
+
+Applications can keep small JSON documents next to the graph, for example
+versioned ontology catalogs, with `GraphStore.meta_put(directory, name, data)`
+and `GraphStore.meta_list(directory)`. They follow the per-writer rule:
+
+```text
+meta/ontology/default/v1.<writer-id>.json
+meta/ontology/default/v2.<writer-id-a>.json   # two devices published v2 from v1:
+meta/ontology/default/v2.<writer-id-b>.json   # both files are kept
+meta/ontology/default/head.<writer-id-a>.json
+```
+
+- A device only creates or replaces its own `<name>.<writer-id>.json`, so a sync
+  client never merges two devices' edits of one file. Deciding what to do with
+  two `v2` files (for example flagging a conflict) is the application's job.
+- Writes are atomic (temporary file, then rename) and end with a newline. An
+  existing file is not replaced unless `replace_existing=True` (pointers such
+  as `head`), so version histories are append-only.
+- `writers/`, `labels.json` and `deleted*` under `meta/` belong to the store and
+  cannot be used. Directory and file names are plain relative segments
+  (letters, digits, `.`, `_`, `-`).
+- `meta_list` returns every writer's files. A file that cannot be read is
+  returned with `problem` set (`cloud-only`, `empty`, `unterminated`,
+  `invalid-json`, `conflict-copy`, `tmp`) and is never skipped silently or
+  modified. `doctor` and `problems()` report the same files (`meta_problems`).

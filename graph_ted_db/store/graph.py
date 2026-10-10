@@ -49,6 +49,13 @@ from graph_ted_db.store.lock import (
     writer_path_for,
 )
 from graph_ted_db.store.lww import resolve
+from graph_ted_db.store.meta import (
+    MetaEntry,
+    app_meta_dirs,
+    check_segments,
+    meta_path,
+    read_entry,
+)
 from graph_ted_db.store.paths import (
     GraphPaths,
     discover_shard_stems,
@@ -111,6 +118,7 @@ class DoctorReport:
     writers: list[str] = field(default_factory=list)
     unregistered_writers: list[str] = field(default_factory=list)
     legacy_shared_files: list[str] = field(default_factory=list)
+    meta_problems: list[str] = field(default_factory=list)
     fix: bool = False
 
     def summary(self) -> str:
@@ -129,6 +137,7 @@ class DoctorReport:
             f"writer files without a registration (still syncing?): "
             f"{len(self.unregistered_writers)}",
             f"v1 shared files (read only): {len(self.legacy_shared_files)}",
+            f"app meta files with problems (not modified): {len(self.meta_problems)}",
         ]
         for item in self.torn_repaired:
             lines.append(f"  repaired {item}")
@@ -145,6 +154,8 @@ class DoctorReport:
             lines.append(f"  skipped {item}")
         for item in self.conflict_copies:
             lines.append(f"  conflict {item}")
+        for item in self.meta_problems:
+            lines.append(f"  meta {item}")
         if self.dangling_edges_found and not self.fix:
             lines.append(
                 "dangling edges were reported, not deleted. In a synced folder their nodes may"
@@ -260,6 +271,7 @@ class GraphStore(_GraphStoreAliases):
             "unterminated_other_writers": len(self._foreign_torn),
             "cloud_only_files": len(self._cloud_only),
             "empty_record_files": len(self._empty_files),
+            "meta_problems": len(self._meta_problems()),
         }
 
     @contextmanager
@@ -815,7 +827,63 @@ class GraphStore(_GraphStoreAliases):
                     legacy.append(str(path))
             report.unregistered_writers = sorted(seen - set(report.writers))
             report.legacy_shared_files = legacy
+            report.meta_problems = self._meta_problems()
         return report
+
+    # --- app metadata files (meta/<namespace>/<name>.<writer>.json) ---
+
+    def meta_put(
+        self, directory: str, name: str, data: dict[str, Any], *, replace_existing: bool = False
+    ) -> Path:
+        """Write ``meta/<directory>/<name>.<this-writer>.json`` atomically.
+
+        Only this writer's own file is ever written, so devices that publish
+        at the same time each keep their file. An existing file is not
+        replaced unless ``replace_existing`` (use that for pointers, not for
+        append-only versions).
+
+        Raises:
+            FileExistsError: the file exists and ``replace_existing`` is false.
+            MetaPathError: unsafe directory or name, or a store-reserved one.
+        """
+        if not isinstance(data, dict):
+            raise TypeError("meta data must be a JSON object")
+        path = meta_path(self.paths.meta_dir, directory, name, self.writer_id)
+        with self._lock():
+            if path.exists() and not replace_existing:
+                raise FileExistsError(str(path))
+            if not self._registered:
+                self._register_writer_unlocked()
+                self._registered = True
+            replace_json_file(path, data)
+        return path
+
+    def meta_list(self, directory: str) -> list[MetaEntry]:
+        """Every file in ``meta/<directory>/`` from all writers, sorted by name.
+
+        Unreadable files are returned with ``problem`` set (and no data), never
+        silently skipped and never modified. Subdirectories are not listed.
+        """
+        segs = check_segments(directory)
+        base = self.paths.meta_dir.joinpath(*segs)
+        if not base.is_dir():
+            return []
+        out = []
+        for child in sorted(base.iterdir()):
+            if child.is_file():
+                out.append(read_entry(child, cloud_only=is_cloud_only(child.stat())))
+        return out
+
+    def _meta_problems(self) -> list[str]:
+        found = []
+        for directory in app_meta_dirs(self.paths.meta_dir):
+            for child in sorted(directory.iterdir()):
+                if not child.is_file():
+                    continue
+                entry = read_entry(child, cloud_only=is_cloud_only(child.stat()))
+                if entry.problem:
+                    found.append(f"{entry.problem} {self._rel(child)}")
+        return found
 
     def export(self, out: str | Path) -> dict[str, int]:
         """Write the current state (live winners only) to one JSONL file.

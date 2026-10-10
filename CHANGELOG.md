@@ -6,6 +6,13 @@ version may include breaking changes; they are called out under **Changed**.
 
 ## [Unreleased]
 
+### Added
+
+- App metadata files: `GraphStore.meta_put` / `meta_list` keep small JSON documents
+  under `meta/<namespace>/` as `<name>.<writer-id>.json` (one file per writer,
+  atomic, append-only by default). `doctor` and `problems()` report unreadable
+  ones (`meta_problems`) without modifying them. See docs/format.md.
+
 ## [0.1.0]
 
 First public release.

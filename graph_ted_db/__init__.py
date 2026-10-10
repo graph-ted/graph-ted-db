@@ -9,12 +9,15 @@ from graph_ted_db.store import (
     VectorRecord,
     init_graph,
 )
+from graph_ted_db.store.meta import MetaEntry, MetaPathError
 
 __version__ = "0.1.0"
 __all__ = [
     "CypherError",
     "EdgeRecord",
     "GraphStore",
+    "MetaEntry",
+    "MetaPathError",
     "NodeRecord",
     "Tombstone",
     "VectorRecord",
