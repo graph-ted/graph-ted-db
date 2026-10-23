@@ -69,6 +69,10 @@ class GraphTedHTTPServer(ThreadingHTTPServer):
 class GraphTedHandler(BaseHTTPRequestHandler):
     server: GraphTedHTTPServer
     protocol_version = "HTTP/1.1"
+    # TCP_NODELAY on each accepted socket. Headers and body go out as separate
+    # writes; with Nagle on, a keep-alive client waits for its delayed ACK
+    # (~40 ms on Linux) before the body arrives.
+    disable_nagle_algorithm = True
 
     def log_message(self, format: str, *args: object) -> None:
         logger.info("%s - %s", self.address_string(), format % args)

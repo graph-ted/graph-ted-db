@@ -358,3 +358,10 @@ def test_serve_refuses_off_loopback_without_token(tmp_path: Path):
     g = _open(tmp_path)
     with pytest.raises(ValueError, match="token"):
         serve(g, host="0.0.0.0", port=0)
+
+
+def test_handler_disables_nagle():
+    # Keep-alive clients otherwise wait on a delayed ACK between headers and body.
+    from graph_ted_db.server.http import GraphTedHandler
+
+    assert GraphTedHandler.disable_nagle_algorithm is True
