@@ -7,13 +7,13 @@ from graph_ted_db.store.records import EdgeRecord, NodeRecord, VectorRecord
 
 
 def _own_node_text(g: GraphStore, record_id: str) -> str:
-    """Bytes this writer has for one node shard, sealed or still local."""
-    stem = shard_id(record_id)
+    """Bytes this writer has for nodes, sealed or still local."""
+    del record_id
     parts: list[str] = []
-    active = g._active_file(g.paths.nodes_dir, stem)
+    active = g._active_log(g.paths.nodes_dir)
     if active.is_file():
         parts.append(active.read_text(encoding="utf-8"))
-    for path in sorted(g.paths.nodes_dir.glob(f"{stem}.{g.writer_id}.*.jsonl")):
+    for path in sorted(g.paths.nodes_dir.glob(f"{g.writer_id}.*.jsonl")):
         parts.append(path.read_text(encoding="utf-8"))
     return "".join(parts)
 
@@ -37,7 +37,7 @@ def test_put_get_list_node(tmp_path: Path):
     # it is a numbered segment rather than a file that later writes append to.
     assert not g.paths.node_shard(rec.id).exists()
     g.publish()
-    sealed = list(g.paths.nodes_dir.glob(f"*.{g.writer_id}.*.jsonl"))
+    sealed = list(g.paths.nodes_dir.glob(f"{g.writer_id}.*.jsonl"))
     assert len(sealed) == 1
     assert sealed[0].parent == g.paths.nodes_dir
     assert segment_seq(sealed[0].name) == 1
@@ -95,7 +95,7 @@ def test_conflict_copy_union_merge(tmp_path: Path):
     g.make_node(record_id=alice_id, props={"name": "Alice"})
     g.publish()
     # Simulate OneDrive forking the shard while another user wrote Bob.
-    canonical = next(g.paths.nodes_dir.glob(f"00.{g.writer_id}.*.jsonl"))
+    canonical = next(g.paths.nodes_dir.glob(f"{g.writer_id}.*.jsonl"))
     conflict = g.paths.nodes_dir / "00-DESKTOP-conflict-2026-08-25.jsonl"
     bob = NodeRecord(
         id=bob_id,
@@ -227,7 +227,7 @@ def test_open_repairs_torn_shard_and_next_put_survives(tmp_path: Path):
         record_id="00000000-0000-4000-8000-000000000001",
         props={"name": "ok"},
     )
-    active = g._active_file(g.paths.nodes_dir, shard_id(rec.id))
+    active = g._active_log(g.paths.nodes_dir)
     active.write_bytes(active.read_bytes() + b'{"id":"torn-incomplete"')
     g2 = GraphStore.open(g.root, data_dir=tmp_path / "locks")
     assert g2.get_node(rec.id) is not None
@@ -266,7 +266,7 @@ def test_corrupt_labels_json_does_not_block_open(tmp_path: Path):
 def test_skips_invalid_jsonl_line(tmp_path: Path):
     g = _open(tmp_path)
     rec = g.make_node(props={"name": "ok"})
-    active = g._active_file(g.paths.nodes_dir, shard_id(rec.id))
+    active = g._active_log(g.paths.nodes_dir)
     active.write_text(
         active.read_text(encoding="utf-8") + "this is not json\n",
         encoding="utf-8",

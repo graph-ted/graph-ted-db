@@ -2,9 +2,13 @@ from pathlib import Path
 
 from graph_ted_db.store.paths import (
     GraphPaths,
+    bundle_filename,
+    bundle_jsonl_files,
+    is_bundle_name,
     is_canonical_shard_name,
     is_conflict_copy,
     is_legacy_v2_name,
+    is_per_shard_segment_name,
     is_sealed_segment_name,
     segment_filename,
     segment_seq,
@@ -72,6 +76,28 @@ def test_shard_jsonl_files_include_segments_and_legacy(tmp_path: Path):
         "00.w0123456789abcdef.000003.jsonl",
         "00.w0123456789abcdef.000003.jsonl.conflict1",
     }
+
+
+def test_bundle_names_cover_every_shard(tmp_path: Path):
+    writer = "w0123456789abcdef"
+    name = bundle_filename(writer, 1)
+    assert name == "w0123456789abcdef.000001.jsonl"
+    assert is_bundle_name(name)
+    assert is_sealed_segment_name(name)
+    assert not is_per_shard_segment_name(name)
+    assert not is_legacy_v2_name(name)
+    assert segment_seq(name) == 1
+    assert writer_of(name) == writer
+    nodes = tmp_path / "nodes"
+    nodes.mkdir()
+    per_shard = "00.w0123456789abcdef.000001.jsonl"
+    (nodes / name).write_text("{}\n", encoding="utf-8")
+    (nodes / f"{name}.conflict1").write_text("{}\n", encoding="utf-8")
+    (nodes / per_shard).write_text("{}\n", encoding="utf-8")
+    assert {path.name for path in bundle_jsonl_files(nodes)} == {name, f"{name}.conflict1"}
+    shard_names = {path.name for path in shard_jsonl_files(nodes, "00")}
+    assert per_shard in shard_names
+    assert name not in shard_names
 
 
 def test_graph_paths_shard_from_uuid(tmp_path: Path):

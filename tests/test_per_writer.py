@@ -166,7 +166,7 @@ def test_format_marker_and_writers_list(tmp_path: Path) -> None:
     sb.make_node(labels=["E"], props={})
     sync(a, b, stores=(sa, sb))
     meta = load_graph_meta(a)
-    assert meta.format_version == 3 and meta.extras["layout"] == "segments"
+    assert meta.format_version == 4 and meta.extras["layout"] == "bundles"
     assert _open(a, tmp_path, "a").writers() == sorted([sa.writer_id, sb.writer_id])
     reg = json.loads((a / "meta" / "writers" / f"{sa.writer_id}.json").read_text())
     assert set(reg) == {"writer", "format_version", "created_at"}
@@ -185,11 +185,11 @@ def test_v1_store_is_read_and_upgraded(tmp_path: Path) -> None:
     assert g.get_node(X) is not None
     assert load_graph_meta(root).format_version == 1  # reading changes nothing
     g.make_node(record_id=X, labels=["E"], props={"new": True})
-    assert load_graph_meta(root).format_version == 3
+    assert load_graph_meta(root).format_version == 4
     assert (root / "nodes" / "0f.jsonl").read_text() == old.to_jsonl() + "\n"
     assert not (root / "nodes" / f"0f.{g.writer_id}.jsonl").exists()
     g.publish()
-    sealed = list((root / "nodes").glob(f"0f.{g.writer_id}.*.jsonl"))
+    sealed = list((root / "nodes").glob(f"{g.writer_id}.*.jsonl"))
     assert len(sealed) == 1
     assert g.get_node(X).props == {"new": True}
     assert g.doctor().legacy_shared_files == [str(root / "nodes" / "0f.jsonl")]
@@ -224,7 +224,7 @@ def test_compact_on_single_writer_keeps_only_own_files(tmp_path: Path) -> None:
     for i in range(3):
         g.make_node(record_id=X, labels=["E"], props={"i": i})
     g.compact()
-    segments = list(g.paths.nodes_dir.glob(f"*.{g.writer_id}.*.jsonl"))
+    segments = list(g.paths.nodes_dir.glob(f"{g.writer_id}.*.jsonl"))
     assert len(segments) == 1
     lines = segments[0].read_text().splitlines()
     assert len(lines) == 1 and json.loads(lines[0])["props"] == {"i": 2}

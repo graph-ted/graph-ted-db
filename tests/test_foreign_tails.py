@@ -8,7 +8,7 @@ import pytest
 
 from graph_ted_db import GraphStore, init_graph
 from graph_ted_db.store import SharedStoreError
-from graph_ted_db.store.format import format_timestamp, shard_id
+from graph_ted_db.store.format import format_timestamp
 from graph_ted_db.store.records import NodeRecord
 
 A = "aaaaaaaa-0000-4000-8000-000000000001"
@@ -30,9 +30,11 @@ def _names(store: GraphStore) -> set[str]:
 
 
 def _sealed(store: GraphStore, record_id: str):
+    del record_id
     store.publish()
-    stem = shard_id(record_id)
-    return next(store.paths.nodes_dir.glob(f"{stem}.{store.writer_id}.*.jsonl"))
+    return next(
+        store.paths.nodes_dir.glob(f"{store.writer_id}.[0-9][0-9][0-9][0-9][0-9][0-9].jsonl")
+    )
 
 
 def test_other_device_never_truncates_unterminated_tail(tmp_path: Path) -> None:
@@ -87,7 +89,7 @@ def test_own_torn_tail_is_repaired(tmp_path: Path) -> None:
     dev_a = GraphStore.open(root, data_dir=tmp_path / "a")
     _node(dev_a, A, "alice")
     # The mutable copy is the local active log. A torn tail there is repaired.
-    active = dev_a._active_file(dev_a.paths.nodes_dir, shard_id(A))
+    active = dev_a._active_log(dev_a.paths.nodes_dir)
     with active.open("ab") as handle:
         handle.write(b'{"id":"torn')
     report = GraphStore.open(root, data_dir=tmp_path / "a").doctor()

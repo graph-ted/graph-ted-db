@@ -79,6 +79,51 @@ def test_log_excerpt_keeps_a_long_error_line() -> None:
     assert "SECRETVALUE" not in str(nested)
 
 
+def test_stream_scrubbed_redacts_each_line_before_it_reaches_disk(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A kill between rclone lines must not leave an access token in the log."""
+    mod = _harness()
+    log_path = tmp_path / "rclone.log"
+
+    class Drip:
+        def __init__(self, cmd, **_kwargs):
+            del cmd
+            self.returncode = None
+            self.stdout = self._lines()
+
+        def _lines(self):
+            yield (
+                "GET https://microsoftpersonalcontent.com/personal/x/_api/upload"
+                "?access_token=SECRETVALUE&tempauth=abc\n"
+            )
+            # The previous line has already been flushed. A kill here is the
+            # case a post-exit scrub would miss.
+            on_disk = log_path.read_text(encoding="utf-8")
+            assert "SECRETVALUE" not in on_disk
+            assert "tempauth=abc" not in on_disk
+            assert "size changed from 1 to 2" not in on_disk
+            yield "ERROR : size changed from 1 to 2\n"
+            self.returncode = 0
+
+        def wait(self, timeout=None):
+            del timeout
+            return 0
+
+        def poll(self):
+            return self.returncode
+
+        def kill(self):
+            self.returncode = -9
+
+    monkeypatch.setattr(mod.subprocess, "Popen", Drip)
+    rc, text = mod._stream_scrubbed(["rclone", "bisync"], log_path, timeout=5)
+    assert rc == 0
+    assert "SECRETVALUE" not in text
+    assert "SECRETVALUE" not in log_path.read_text(encoding="utf-8")
+    assert "size changed from 1 to 2" in text
+
+
 def test_rc7_lockout_runs_one_resync_and_stays_a_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -86,27 +131,32 @@ def test_rc7_lockout_runs_one_resync_and_stays_a_failure(
     writer = _writer(mod, tmp_path)
     calls: list[list[str]] = []
 
-    def fake_run(cmd, **kwargs):
-        calls.append(list(cmd))
-        handle = kwargs["stdout"]
-        if len(calls) == 1:
-            (writer.workdir / "listing.lst-err").write_text("critical\n", encoding="utf-8")
-            handle.write(
-                "ERROR : can't copy - source file is being updated "
-                "(size changed from 637 to 956) "
-                "https://microsoftpersonalcontent.com/x?access_token=SECRETVALUE\n"
-            )
-            code = 7
-        else:
-            handle.write("Bisync successful\n")
-            code = 0
+    class FakeProc:
+        def __init__(self, cmd, **_kwargs):
+            calls.append(list(cmd))
+            if len(calls) == 1:
+                (writer.workdir / "listing.lst-err").write_text("critical\n", encoding="utf-8")
+                text = (
+                    "ERROR : can't copy - source file is being updated "
+                    "(size changed from 637 to 956) "
+                    "https://microsoftpersonalcontent.com/x?access_token=SECRETVALUE\n"
+                )
+                self.returncode = 7
+            else:
+                text = "Bisync successful\n"
+                self.returncode = 0
+            self.stdout = iter([text])
 
-        class Result:
-            returncode = code
+        def wait(self, timeout=None):
+            return self.returncode
 
-        return Result()
+        def poll(self):
+            return self.returncode
 
-    monkeypatch.setattr(mod.subprocess, "run", fake_run)
+        def kill(self):
+            self.returncode = -9
+
+    monkeypatch.setattr(mod.subprocess, "Popen", FakeProc)
     rc = writer.sync()
     assert rc == 7
     assert len(calls) == 2
@@ -127,11 +177,22 @@ def test_rc7_lockout_runs_one_resync_and_stays_a_failure(
     assert "SECRETVALUE" not in combined
     assert "size changed from 637 to 956" in writer.sync_log[0]["out"]
     # A later phase gets its own file. It does not reopen the lockout log.
-    monkeypatch.setattr(
-        mod.subprocess,
-        "run",
-        lambda cmd, **kwargs: type("R", (), {"returncode": 0})(),
-    )
+    class OkProc:
+        def __init__(self, cmd, **_kwargs):
+            calls.append(list(cmd))
+            self.stdout = iter(["ok\n"])
+            self.returncode = 0
+
+        def wait(self, timeout=None):
+            return 0
+
+        def poll(self):
+            return 0
+
+        def kill(self):
+            self.returncode = -9
+
+    monkeypatch.setattr(mod.subprocess, "Popen", OkProc)
     assert writer.sync(extra=["--force"]) == 0
     force_logs = list(writer.logdir.glob("*-force.log"))
     assert len(force_logs) == 1

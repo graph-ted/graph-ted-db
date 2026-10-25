@@ -7,12 +7,14 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 FORMAT_NAME = "graph-ted-db"
-FORMAT_VERSION = 3
+FORMAT_VERSION = 4
 # v2: each writer appended only to its own files ("<stem>.<writer>.jsonl").
 LAYOUT_PER_WRITER = "per-writer"
-# v3: synced record files are sealed segments. The growing log stays local.
+# v3 draft: one sealed file per shard per publish. Still read, then folded.
 LAYOUT_SEGMENTS = "segments"
-# Zero-padded so segment names sort in publish order. 6 digits is 999_999 seals per stem.
+# v4: one sealed bundle per directory per publish. The growing log stays local.
+LAYOUT_BUNDLES = "bundles"
+# Zero-padded so segment names sort in publish order. 6 digits is 999_999 seals.
 SEGMENT_SEQ_WIDTH = 6
 _WRITER_RE = re.compile(r"^w[0-9a-f]{16}$")
 SHARD_FANOUT = 256

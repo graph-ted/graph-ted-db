@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from graph_ted_db.store.jsonl import fsync_directory
-from graph_ted_db.store.paths import segment_filename, segment_seq
+from graph_ted_db.store.paths import bundle_filename, segment_filename, segment_seq
 
 
 @dataclass(frozen=True)
@@ -34,10 +34,11 @@ class PublishPolicy:
     * none after ``GraphStore.publish`` or ``GraphStore.close``, and on the
       next ``open`` for bytes left behind by a crash.
 
-    ``0`` disables that one trigger. ``compact_after`` is how many sealed
-    segments of one stem this writer will keep before merging its own older
-    ones into a new segment. ``0`` disables automatic compaction (``compact()``
-    still works).
+    ``0`` disables that one trigger. Triggers apply to the whole directory
+    (every shard of ``nodes/``, or of ``edges/``, …), and one publish writes
+    one file for that directory. ``compact_after`` is how many of those files
+    this writer keeps before folding them into one. ``0`` disables automatic
+    compaction (``compact()`` still works).
 
     Environment overrides (used when ``GraphStore.open`` is not passed a
     policy): ``GRAPH_TED_DB_PUBLISH_BYTES``, ``GRAPH_TED_DB_PUBLISH_INTERVAL``,
@@ -47,7 +48,7 @@ class PublishPolicy:
     max_bytes: int = 1_048_576
     max_interval: float = 2.0
     idle: float = 0.5
-    compact_after: int = 16
+    compact_after: int = 4
 
     def __post_init__(self) -> None:
         if self.max_bytes < 0 or self.compact_after < 0:
@@ -119,6 +120,26 @@ def next_seq(directory: Path, stem: str, writer: str) -> int:
 
 def segment_path(directory: Path, stem: str, writer: str, seq: int) -> Path:
     return directory / segment_filename(stem, writer, seq)
+
+
+def next_bundle_seq(directory: Path, writer: str) -> int:
+    """Next 1-based sequence for this writer's bundles in `directory`."""
+    best = 0
+    if not directory.is_dir():
+        return 1
+    try:
+        names = os.listdir(directory)
+    except OSError:
+        return 1
+    for name in names:
+        seq = segment_seq(name)
+        if seq is not None and name == bundle_filename(writer, seq):
+            best = max(best, seq)
+    return best + 1
+
+
+def bundle_path(directory: Path, writer: str, seq: int) -> Path:
+    return directory / bundle_filename(writer, seq)
 
 
 def publish_immutable(dest: Path, data: bytes, *, stage_dir: Path) -> None:

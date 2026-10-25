@@ -72,7 +72,7 @@ def test_cloud_only_and_empty_files_are_reported(tmp_path: Path, monkeypatch, ca
     g = GraphStore.open(root, data_dir=tmp_path / "a")
     g.make_node(record_id=X, labels=["E"], props={})
     g.publish()
-    placeholder = next(g.paths.nodes_dir.glob(f"*.{g.writer_id}.*.jsonl"))
+    placeholder = next(g.paths.nodes_dir.glob(f"{g.writer_id}.*.jsonl"))
     empty = root / "nodes" / "aa.w0000000000000001.jsonl"
     empty.write_bytes(b"")
     monkeypatch.setattr(
@@ -111,7 +111,7 @@ def test_skipped_lines_warn_on_open_and_show_in_info_and_health(
     init_graph(root)
     g = GraphStore.open(root, data_dir=tmp_path / "a")
     g.make_node(record_id=X, labels=["E"], props={})
-    active = g._active_file(g.paths.nodes_dir, "0f")
+    active = g._active_log(g.paths.nodes_dir)
     with active.open("a", encoding="utf-8") as fh:
         fh.write('{"not": "a record"}\n')
     with caplog.at_level(logging.WARNING, logger="graph_ted_db"):
@@ -165,7 +165,7 @@ def test_partial_write_is_repaired_in_own_file(tmp_path: Path, monkeypatch) -> N
     data = tmp_path / "a"
     g = GraphStore.open(root, data_dir=data)
     g.make_node(record_id=X, labels=["E"], props={"v": "kept"})
-    active = g._active_file(g.paths.nodes_dir, "0f")
+    active = g._active_log(g.paths.nodes_dir)
     # Disk filled up half-way through a line of the local log.
     with active.open("ab") as fh:
         fh.write(b'{"id":"0f000000-0000-4000-8000-0000000000')

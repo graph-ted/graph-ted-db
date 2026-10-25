@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 from graph_ted_db.store import GraphStore, init_graph
-from graph_ted_db.store.format import format_timestamp, shard_id
+from graph_ted_db.store.format import format_timestamp
 from graph_ted_db.store.paths import is_record_file_name
 from graph_ted_db.store.records import EdgeRecord, NodeRecord, Tombstone
 
@@ -29,9 +29,9 @@ def _open(tmp_path: Path, name: str = "g") -> GraphStore:
 
 
 def _sealed(store: GraphStore, directory, record_id: str):
+    del record_id
     store.publish()
-    stem = shard_id(record_id)
-    return next(directory.glob(f"{stem}.{store.writer_id}.*.jsonl"))
+    return next(directory.glob(f"{store.writer_id}.[0-9][0-9][0-9][0-9][0-9][0-9].jsonl"))
 
 
 def _node(rec_id: str, name: str, at: str | None = None) -> NodeRecord:
@@ -81,7 +81,7 @@ def test_bisync_renamed_shard_stays_visible(tmp_path: Path, suffixes: tuple[str,
     # A later write is sealed under a new name; the conflict copies stay visible.
     fresh.put_node(_node(A, "alice-2"))
     fresh.publish()
-    assert any(fresh.paths.nodes_dir.glob(f"*.{fresh.writer_id}.*.jsonl"))
+    assert any(fresh.paths.nodes_dir.glob(f"{fresh.writer_id}.*.jsonl"))
     assert {n.props["name"] for n in fresh.iter_nodes()} == {"alice-2", "bob"}
 
 

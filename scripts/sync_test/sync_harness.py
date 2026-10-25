@@ -104,6 +104,37 @@ def log_excerpt(text: str, *, tail: int = 2000) -> str:
     return block + "\n" + body
 
 
+def _stream_scrubbed(
+    cmd: list[str], log_path: Path, timeout: float, *, append: bool = False
+) -> tuple[int, str]:
+    """Run `cmd`, writing only scrubbed lines to `log_path`.
+
+    A kill while the process is running must not leave an upload URL on disk.
+    Lines are scrubbed before they are written, not after the process exits.
+    """
+    proc = subprocess.Popen(
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+    )
+    parts: list[str] = []
+    try:
+        assert proc.stdout is not None
+        with log_path.open("a" if append else "w", encoding="utf-8") as handle:
+            for line in proc.stdout:
+                clean = scrub_secrets(line)
+                handle.write(clean)
+                handle.flush()
+                parts.append(clean)
+        return proc.wait(timeout=timeout), "".join(parts)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait(timeout=5)
+        raise
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait(timeout=5)
+
+
 def scrub_obj(value: Any) -> Any:
     """Scrub every string in a results object before it is written as JSON."""
     if isinstance(value, str):
@@ -392,15 +423,9 @@ class Writer:
         self, cmd: list[str], *, phase: str, timeout: float
     ) -> tuple[int, Path, str]:
         log_path = self._log_path(phase)
-        with open(log_path, "w", encoding="utf-8") as fh, self._store_lock():
-            proc = subprocess.run(
-                cmd, check=False, stdout=fh, stderr=subprocess.STDOUT, text=True, timeout=timeout
-            )
-        raw = log_path.read_text(errors="replace")
-        clean = scrub_secrets(raw)
-        if clean != raw:
-            log_path.write_text(clean, encoding="utf-8")
-        return proc.returncode, log_path, clean
+        with self._store_lock():
+            rc, clean = _stream_scrubbed(cmd, log_path, timeout)
+        return rc, log_path, clean
 
     def _critical_lockout(self) -> bool:
         """rclone bisync rc 7 leaves a .lst-err and refuses every later run."""
@@ -464,16 +489,13 @@ class Writer:
         t0 = time.time()
         log_path = self._log_path("overwrite")
         rc = 0
-        with open(log_path, "w", encoding="utf-8") as fh, self._store_lock():
+        parts: list[str] = []
+        with self._store_lock():
             for cmd in self.overwrite_cmds():
-                proc = subprocess.run(
-                    cmd, check=False, stdout=fh, stderr=subprocess.STDOUT, text=True, timeout=timeout
-                )
-                rc = rc or proc.returncode
-        raw = log_path.read_text(errors="replace")
-        out = scrub_secrets(raw)
-        if out != raw:
-            log_path.write_text(out, encoding="utf-8")
+                one, text = _stream_scrubbed(cmd, log_path, timeout, append=True)
+                rc = rc or one
+                parts.append(text)
+        out = "".join(parts)
         self.sync_log.append(
             {
                 "t": round(t0, 3),

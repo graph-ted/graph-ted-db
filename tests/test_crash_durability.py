@@ -293,10 +293,13 @@ def _ids(store: GraphStore) -> set[str]:
 
 
 def _sealed(store: GraphStore, directory, record_id_value: str):
-    from graph_ted_db.store.format import shard_id
+    """The one bundle this writer published in `directory`.
 
-    stem = shard_id(record_id_value)
-    return next(directory.glob(f"{stem}.{store.writer_id}.*.jsonl"))
+    A publish covers every shard, so the record id only checks that the
+    caller still has a record in mind. The file is `<writer>.<seq>.jsonl`.
+    """
+    del record_id_value
+    return next(directory.glob(f"{store.writer_id}.[0-9][0-9][0-9][0-9][0-9][0-9].jsonl"))
 
 
 def _sealed_deleted(store: GraphStore):
@@ -349,15 +352,22 @@ def test_truncated_final_line_is_skipped(tmp_path: Path):
     node_shard = _sealed(store, store.paths.nodes_dir, chopped_id)
     original = node_shard.read_bytes()
     assert original.endswith(b"\n")
-    assert original.count(b"\n") >= 1
-    node_shard.write_bytes(original[:-12])
+    assert original.count(b"\n") >= 2
+    # One bundle holds every shard. Cut the target line itself, not the tail
+    # of some other shard that now shares the file.
+    cut = original.find(chopped_id.encode("ascii"))
+    assert cut > 0
+    node_shard.write_bytes(original[: cut + 8])
     deleted = _sealed_deleted(store)
     deleted_bytes = deleted.read_bytes()
     assert deleted_bytes.endswith(b"\n")
     deleted.write_bytes(deleted_bytes[:-8])
-    edge_shard = _sealed(store, store.paths.edges_dir, record_id(3, KEEP_EDGE_SEQ))
+    edge_id = record_id(3, KEEP_EDGE_SEQ)
+    edge_shard = _sealed(store, store.paths.edges_dir, edge_id)
     edge_bytes = edge_shard.read_bytes()
-    edge_shard.write_bytes(edge_bytes[:-6])
+    edge_cut = edge_bytes.find(edge_id.encode("ascii"))
+    assert edge_cut > 0
+    edge_shard.write_bytes(edge_bytes[: edge_cut + 8])
 
     # Another device opening the same folder must not modify these files: a
     # missing newline there may be a sync still in flight. It skips and reports.
@@ -377,5 +387,5 @@ def test_truncated_final_line_is_skipped(tmp_path: Path):
     assert chopped_id not in _ids(reopened)
     assert record_id(3, KEEP_EDGE_SEQ) not in {edge.id for edge in reopened.iter_edges()}
     assert _outcome(reopened, 2) == "present"
-    assert node_shard.read_bytes() == original[:-12]
+    assert node_shard.read_bytes() == original[: cut + 8]
     assert str(node_shard) in reopened.doctor().sealed_torn
