@@ -9,6 +9,24 @@ version may include breaking changes; they are called out under **Changed**.
 ### Added
 
 - `py.typed` marker (PEP 561): type checkers use graph-ted-db's inline types.
+- On-disk format version 3 (`docs/format.md`): record bytes grow in the local
+  app-data directory and are published as immutable, numbered segment files.
+  A synced folder no longer contains a record file that is still being
+  appended. `PublishPolicy` (and `GRAPH_TED_DB_PUBLISH_BYTES`,
+  `GRAPH_TED_DB_PUBLISH_INTERVAL`, `GRAPH_TED_DB_PUBLISH_IDLE`,
+  `GRAPH_TED_DB_COMPACT_AFTER`) sets the seal rule. `GraphStore.publish`
+  seals immediately. Owned v2 files are sealed on open; readers union a
+  folder that is only partly migrated. `doctor` reports `legacy_v2_files`,
+  `migrated`, and `sealed_torn`.
+
+### Changed
+
+- `compact()` republishes this writer's own segments. Another writer's files
+  are not a reason to refuse; conflict copies still are.
+- The file-sync harness treats a bisync critical lockout (exit 7 with a
+  `.lst-err` file) as a failure, runs one `--resync`, and keeps a separate
+  log per phase. Error lines are not truncated. OneDrive upload URLs and
+  query tokens are scrubbed from the logs and results JSON the harness writes.
 
 ## [0.1.1] - 2026-10-10
 

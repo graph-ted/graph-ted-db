@@ -4,7 +4,12 @@ from graph_ted_db.store.paths import (
     GraphPaths,
     is_canonical_shard_name,
     is_conflict_copy,
+    is_legacy_v2_name,
+    is_sealed_segment_name,
+    segment_filename,
+    segment_seq,
     shard_jsonl_files,
+    writer_of,
 )
 
 
@@ -36,6 +41,37 @@ def test_shard_jsonl_files_unions_conflicts(tmp_path: Path):
     files = shard_jsonl_files(nodes, "00")
     names = {p.name for p in files}
     assert names == {"00.jsonl", "00-laptop-conflict.jsonl"}
+
+
+def test_segment_names_carry_one_writer_and_a_sequence():
+    sealed = segment_filename("0f", "w0123456789abcdef", 1)
+    assert sealed == "0f.w0123456789abcdef.000001.jsonl"
+    assert is_sealed_segment_name(sealed)
+    assert not is_legacy_v2_name(sealed)
+    assert segment_seq(sealed) == 1
+    assert writer_of(sealed) == "w0123456789abcdef"
+    legacy = "0f.w0123456789abcdef.jsonl"
+    assert is_legacy_v2_name(legacy)
+    assert not is_sealed_segment_name(legacy)
+    assert writer_of(legacy) == "w0123456789abcdef"
+    assert not is_conflict_copy(Path(sealed), "0f")
+    assert is_conflict_copy(Path(sealed + ".conflict1"), "0f")
+
+
+def test_shard_jsonl_files_include_segments_and_legacy(tmp_path: Path):
+    nodes = tmp_path / "nodes"
+    nodes.mkdir()
+    (nodes / "00.jsonl").write_text("{}\n", encoding="utf-8")
+    (nodes / "00.w0123456789abcdef.jsonl").write_text("{}\n", encoding="utf-8")
+    (nodes / "00.w0123456789abcdef.000003.jsonl").write_text("{}\n", encoding="utf-8")
+    (nodes / "00.w0123456789abcdef.000003.jsonl.conflict1").write_text("{}\n", encoding="utf-8")
+    names = {path.name for path in shard_jsonl_files(nodes, "00")}
+    assert names == {
+        "00.jsonl",
+        "00.w0123456789abcdef.jsonl",
+        "00.w0123456789abcdef.000003.jsonl",
+        "00.w0123456789abcdef.000003.jsonl.conflict1",
+    }
 
 
 def test_graph_paths_shard_from_uuid(tmp_path: Path):

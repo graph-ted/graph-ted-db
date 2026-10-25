@@ -22,11 +22,14 @@ from graph_ted_db.store.records import NodeRecord
 X = "0f000000-0000-4000-8000-000000000001"
 
 
-def sync(*roots: Path) -> None:
+def sync(*roots: Path, stores: tuple[GraphStore, ...] = ()) -> None:
     """A crude sync client: per file, the newest version overwrites the others.
 
     No conflict copies at all: the worst case for a shared-file layout.
+    Writers must publish first: only sealed segments are in the folder.
     """
+    for store in stores:
+        store.publish()
     names: set[Path] = set()
     for root in roots:
         names |= {p.relative_to(root) for p in root.rglob("*") if p.is_file()}
@@ -57,7 +60,7 @@ def test_concurrent_adds_lose_nothing_even_with_overwriting_sync(tmp_path: Path)
     sa, sb = _open(a, tmp_path, "a"), _open(b, tmp_path, "b")
     ids_a = {sa.make_node(labels=["E"], props={"by": "a", "i": i}).id for i in range(300)}
     ids_b = {sb.make_node(labels=["E"], props={"by": "b", "i": i}).id for i in range(300)}
-    sync(a, b)
+    sync(a, b, stores=(sa, sb))
     for root, dev in ((a, "a"), (b, "b")):
         got = {n.id for n in _open(root, tmp_path, dev).iter_nodes()}
         assert got == ids_a | ids_b
@@ -70,12 +73,12 @@ def test_concurrent_edit_and_delete_converge_to_same_winner(tmp_path: Path) -> N
     a, b = _two_devices(tmp_path)
     sa = _open(a, tmp_path, "a")
     sa.make_node(record_id=X, labels=["E"], props={"v": 0})
-    sync(a, b)
+    sync(a, b, stores=(sa,))
     sb = _open(b, tmp_path, "b")
     assert sb.get_node(X) is not None
     sa.make_node(record_id=X, labels=["E"], props={"v": "edit-a"})
     sb.delete_node(X)
-    sync(a, b)
+    sync(a, b, stores=(sa, sb))
     ra, rb = _open(a, tmp_path, "a"), _open(b, tmp_path, "b")
     assert ra.get_node(X) == rb.get_node(X)
 
@@ -86,7 +89,7 @@ def test_same_timestamp_tiebreak_is_deterministic(tmp_path: Path) -> None:
     ts = "2026-10-09T12:00:00.000000Z"
     sa.put_node(NodeRecord(id=X, updated_at=ts, labels=("E",), props={"by": "a"}))
     sb.put_node(NodeRecord(id=X, updated_at=ts, labels=("E",), props={"by": "b"}))
-    sync(a, b)
+    sync(a, b, stores=(sa, sb))
     expect = "a" if sa.writer_id > sb.writer_id else "b"
     for root, dev in ((a, "a"), (b, "b")):
         assert _open(root, tmp_path, dev).get_node(X).props["by"] == expect
@@ -96,7 +99,7 @@ def test_edit_after_seeing_wins_despite_slow_clock(tmp_path: Path, monkeypatch) 
     a, b = _two_devices(tmp_path)
     sa = _open(a, tmp_path, "a")
     sa.make_node(record_id=X, labels=["E"], props={"v": "a"})
-    sync(a, b)
+    sync(a, b, stores=(sa,))
     # Device B's clock is a day behind.
     monkeypatch.setattr(graph_mod, "format_timestamp", lambda: "2026-01-01T00:00:00.000000Z")
     sb = _open(b, tmp_path, "b")
@@ -104,7 +107,7 @@ def test_edit_after_seeing_wins_despite_slow_clock(tmp_path: Path, monkeypatch) 
     edited = sb.make_node(record_id=X, labels=["E"], props={"v": "b"})
     assert edited.updated_at >= sa.get_node(X).updated_at
     monkeypatch.undo()
-    sync(a, b)
+    sync(a, b, stores=(sb,))
     assert _open(a, tmp_path, "a").get_node(X).props["v"] == "b"
 
 
@@ -161,9 +164,9 @@ def test_format_marker_and_writers_list(tmp_path: Path) -> None:
     assert not (a / "meta" / "writers").exists() or not any((a / "meta" / "writers").iterdir())
     sa.make_node(labels=["E"], props={})
     sb.make_node(labels=["E"], props={})
-    sync(a, b)
+    sync(a, b, stores=(sa, sb))
     meta = load_graph_meta(a)
-    assert meta.format_version == 2 and meta.extras["layout"] == "per-writer"
+    assert meta.format_version == 3 and meta.extras["layout"] == "segments"
     assert _open(a, tmp_path, "a").writers() == sorted([sa.writer_id, sb.writer_id])
     reg = json.loads((a / "meta" / "writers" / f"{sa.writer_id}.json").read_text())
     assert set(reg) == {"writer", "format_version", "created_at"}
@@ -182,8 +185,12 @@ def test_v1_store_is_read_and_upgraded(tmp_path: Path) -> None:
     assert g.get_node(X) is not None
     assert load_graph_meta(root).format_version == 1  # reading changes nothing
     g.make_node(record_id=X, labels=["E"], props={"new": True})
-    assert load_graph_meta(root).format_version == 2
+    assert load_graph_meta(root).format_version == 3
     assert (root / "nodes" / "0f.jsonl").read_text() == old.to_jsonl() + "\n"
+    assert not (root / "nodes" / f"0f.{g.writer_id}.jsonl").exists()
+    g.publish()
+    sealed = list((root / "nodes").glob(f"0f.{g.writer_id}.*.jsonl"))
+    assert len(sealed) == 1
     assert g.get_node(X).props == {"new": True}
     assert g.doctor().legacy_shared_files == [str(root / "nodes" / "0f.jsonl")]
 
@@ -193,6 +200,7 @@ def test_doctor_on_half_synced_copy_reports_and_modifies_nothing(tmp_path: Path)
     sa = _open(a, tmp_path, "a")
     for i in range(20):
         sa.make_node(labels=["E"], props={"i": i})
+    sa.publish()
     # Half-synced: B gets A's node files, one cut mid-line, but no registration yet.
     for p in (a / "nodes").iterdir():
         dst = b / "nodes" / p.name
@@ -216,7 +224,9 @@ def test_compact_on_single_writer_keeps_only_own_files(tmp_path: Path) -> None:
     for i in range(3):
         g.make_node(record_id=X, labels=["E"], props={"i": i})
     g.compact()
-    lines = g.paths.node_shard(X).read_text().splitlines()
+    segments = list(g.paths.nodes_dir.glob(f"*.{g.writer_id}.*.jsonl"))
+    assert len(segments) == 1
+    lines = segments[0].read_text().splitlines()
     assert len(lines) == 1 and json.loads(lines[0])["props"] == {"i": 2}
 
 

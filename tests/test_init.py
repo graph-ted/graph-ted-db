@@ -25,8 +25,8 @@ def test_init_graph_creates_layout_without_preallocating_shards(tmp_path: Path):
     assert loaded.id == meta.id
     assert loaded.name == "demo"
     assert loaded.format == "graph-ted-db"
-    assert loaded.format_version == 2
-    assert loaded.extras["layout"] == "per-writer"
+    assert loaded.format_version == 3
+    assert loaded.extras["layout"] == "segments"
     assert loaded.shard_fanout == 256
 
 

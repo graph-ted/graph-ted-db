@@ -132,7 +132,7 @@ def main(argv: list[str] | None = None) -> int:
 
     compact_p = sub.add_parser(
         "compact",
-        help="rewrite canonical shards to LWW winners (keeps conflict copies)",
+        help="republish this writer's segments as its LWW winners",
     )
     compact_p.add_argument("path", type=Path)
 

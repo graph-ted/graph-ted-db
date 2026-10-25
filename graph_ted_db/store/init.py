@@ -7,7 +7,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from graph_ted_db.store.format import (
-    LAYOUT_PER_WRITER,
+    LAYOUT_SEGMENTS,
     format_timestamp,
     is_writer_id,
     new_writer_id,
@@ -43,7 +43,7 @@ def init_graph(
         id=str(uuid4()),
         name=name,
         created_at=format_timestamp(),
-        extras={"layout": LAYOUT_PER_WRITER},
+        extras={"layout": LAYOUT_SEGMENTS},
     )
     replace_json_file(paths.graph_json, meta.to_dict())
     replace_json_file(paths.labels_json, EMPTY_LABELS)

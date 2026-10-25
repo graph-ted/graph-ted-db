@@ -71,7 +71,8 @@ def test_cloud_only_and_empty_files_are_reported(tmp_path: Path, monkeypatch, ca
     init_graph(root)
     g = GraphStore.open(root, data_dir=tmp_path / "a")
     g.make_node(record_id=X, labels=["E"], props={})
-    placeholder = g.paths.node_shard(X)
+    g.publish()
+    placeholder = next(g.paths.nodes_dir.glob(f"*.{g.writer_id}.*.jsonl"))
     empty = root / "nodes" / "aa.w0000000000000001.jsonl"
     empty.write_bytes(b"")
     monkeypatch.setattr(
@@ -110,7 +111,8 @@ def test_skipped_lines_warn_on_open_and_show_in_info_and_health(
     init_graph(root)
     g = GraphStore.open(root, data_dir=tmp_path / "a")
     g.make_node(record_id=X, labels=["E"], props={})
-    with g.paths.node_shard(X).open("a", encoding="utf-8") as fh:
+    active = g._active_file(g.paths.nodes_dir, "0f")
+    with active.open("a", encoding="utf-8") as fh:
         fh.write('{"not": "a record"}\n')
     with caplog.at_level(logging.WARNING, logger="graph_ted_db"):
         reopened = GraphStore.open(root, data_dir=tmp_path / "a")
@@ -163,12 +165,12 @@ def test_partial_write_is_repaired_in_own_file(tmp_path: Path, monkeypatch) -> N
     data = tmp_path / "a"
     g = GraphStore.open(root, data_dir=data)
     g.make_node(record_id=X, labels=["E"], props={"v": "kept"})
-    shard = g.paths.node_shard(X)
-    # Disk filled up half-way through a line.
-    with shard.open("ab") as fh:
+    active = g._active_file(g.paths.nodes_dir, "0f")
+    # Disk filled up half-way through a line of the local log.
+    with active.open("ab") as fh:
         fh.write(b'{"id":"0f000000-0000-4000-8000-0000000000')
     reopened = GraphStore.open(root, data_dir=data)
-    assert shard.read_bytes().endswith(b"\n")
+    assert active.read_bytes() == b"" or active.read_bytes().endswith(b"\n")
     assert reopened.get_node(X).props == {"v": "kept"}
     reopened.make_node(record_id=X, labels=["E"], props={"v": "next"})
     assert reopened.problems()["skipped_lines"] == 0
@@ -179,11 +181,14 @@ def test_read_only_folder_raises_permission_error(tmp_path: Path) -> None:
     root = tmp_path / "g"
     init_graph(root)
     g = GraphStore.open(root, data_dir=tmp_path / "a")
-    g.make_node(labels=["E"], props={})
+    kept = g.make_node(labels=["E"], props={"v": "local"})
     os.chmod(root / "nodes", 0o500)
     try:
+        # The active log is outside the graph folder, so the write is durable
+        # locally. Publishing into the unwritable synced directory fails loudly.
         with pytest.raises(PermissionError):
-            g.make_node(record_id="ff000000-0000-4000-8000-000000000001", labels=["E"], props={})
+            g.publish()
+        assert g.get_node(kept.id) is not None
     finally:
         os.chmod(root / "nodes", 0o700)
 
@@ -200,14 +205,16 @@ def test_old_offline_device_cannot_bring_deleted_data_back(tmp_path: Path) -> No
     shutil.copytree(a, b)
     sa = GraphStore.open(a, data_dir=tmp_path / "da")
     ids = [sa.make_node(labels=["E"], props={"i": i}).id for i in range(20)]
-    sync(a, b)
+    sync(a, b, stores=(sa,))
     sb = GraphStore.open(b, data_dir=tmp_path / "db")
     sb.make_node(
         record_id=ids[0], labels=["E"], props={"i": "b-old-edit"}
     )  # B edits, then goes offline
+    sb.publish()
     stale_b = {p: p.read_bytes() for p in b.rglob("*.jsonl")}
     for rid in ids:
         sa.delete_node(rid)
+    sa.publish()
     sync(a, b)  # B is offline: pretend it never received this
     for p, data in stale_b.items():
         p.write_bytes(data)
@@ -236,7 +243,10 @@ def test_wiping_app_data_rebuilds_identical_results(tmp_path: Path) -> None:
     q = "MATCH (x:Person)-[:KNOWS]->(y) RETURN x.name AS x, y.name AS y"
     before = g.execute(q)
     old_writer = g.writer_id
-    shutil.rmtree(data)  # index, WAL, LOCK, writer id
+    # Unpublished bytes live in the data dir. The graph folder is the source
+    # of truth only after they are sealed.
+    g.close()
+    shutil.rmtree(data)  # index, WAL, LOCK, writer id, empty active logs
     (root / "meta" / "labels.json").write_text("{not json")
     fresh = GraphStore.open(root, data_dir=data)
     assert fresh.execute(q) == before

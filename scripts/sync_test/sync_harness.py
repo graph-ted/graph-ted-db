@@ -40,12 +40,14 @@ import hashlib
 import json
 import os
 import random
+import re
 import shlex
 import shutil
 import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -54,6 +56,63 @@ from typing import Any
 
 HERE = Path(__file__).resolve().parent
 NS = uuid.UUID("6f1c3f0e-6a3e-4c55-9d7c-5b1d1e0c2a11")
+
+# Upload URLs and query tokens that rclone prints for OneDrive / Graph.
+_UPLOAD_URL = re.compile(
+    r"(?i)https?://[^\s\"'<>]*(?:onedrive\.live\.com|1drv\.ms|sharepoint\.com|"
+    r"microsoftpersonalcontent\.com|files\.1drv\.com|graph\.microsoft\.com|"
+    r"live\.net)[^\s\"'<>]*"
+)
+_SENSITIVE_QUERY = re.compile(
+    r"(?i)([?&](?:access_token|refresh_token|tempauth|sig|signature|se|skoid|sktid|"
+    r"token|x-ms-signature)=)[^&\s\"']+"
+)
+_ERROR_LINE = re.compile(
+    r"(?i)\b(ERROR|CRITICAL|FATAL|Failed to bisync|can't copy|size changed|NOTICE:)\b"
+)
+
+
+def scrub_secrets(text: str) -> str:
+    """Drop OneDrive upload URLs and query tokens before anything is written out."""
+
+    def redact_url(match: re.Match[str]) -> str:
+        url = match.group(0)
+        base = url.split("#", 1)[0].split("?", 1)[0]
+        return base + ("?REDACTED" if "?" in url or "#" in url else "")
+
+    text = _UPLOAD_URL.sub(redact_url, text)
+    return _SENSITIVE_QUERY.sub(r"\1REDACTED", text)
+
+
+def log_excerpt(text: str, *, tail: int = 2000) -> str:
+    """Context tail plus every error line in full. Error lines are never cut."""
+    lines = text.splitlines()
+    errors = [line for line in lines if _ERROR_LINE.search(line)]
+    if len(text) <= tail:
+        body = text
+    else:
+        body = text[-tail:]
+        newline = body.find("\n")
+        if newline >= 0:
+            body = body[newline + 1 :]
+        body = "…\n" + body
+    if not errors:
+        return body
+    block = "\n".join(errors)
+    if block in body:
+        return body
+    return block + "\n" + body
+
+
+def scrub_obj(value: Any) -> Any:
+    """Scrub every string in a results object before it is written as JSON."""
+    if isinstance(value, str):
+        return scrub_secrets(value)
+    if isinstance(value, dict):
+        return {key: scrub_obj(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [scrub_obj(item) for item in value]
+    return value
 
 
 # --------------------------------------------------------------------------
@@ -229,19 +288,24 @@ def cmd_write(args: argparse.Namespace) -> int:
         journal.flush()
         batch.clear()
 
-    for op in plan:
-        if op["op"] == "sleep":
-            flush_batch()
-            time.sleep(op["s"])
-            continue
-        if op["op"] == "commit":
-            flush_batch()
-            continue
-        batch.append(op)
-        if len(batch) >= args.batch:
-            flush_batch()
-    flush_batch()
-    journal.close()
+    try:
+        for op in plan:
+            if op["op"] == "sleep":
+                flush_batch()
+                time.sleep(op["s"])
+                continue
+            if op["op"] == "commit":
+                flush_batch()
+                continue
+            batch.append(op)
+            if len(batch) >= args.batch:
+                flush_batch()
+        flush_batch()
+    finally:
+        # Seal active logs before exit so the synced folder only has immutable
+        # segments. A SIGKILL skips this; the next open publishes the local log.
+        journal.close()
+        store.close()
     return 0
 
 
@@ -258,6 +322,7 @@ class Writer:
     base: Path = field(init=False)
     synced_once: bool = False
     sync_log: list[dict[str, Any]] = field(default_factory=list)
+    _log_seq: int = 0
 
     def __post_init__(self) -> None:
         self.base = self.cfg.work / self.scenario / self.name
@@ -315,51 +380,109 @@ class Writer:
             [*base, self.remote, str(self.store)],
         ]
 
+    def _log_path(self, phase: str) -> Path:
+        """A new log file for this phase. Recovery never reopens an earlier log."""
+        while True:
+            self._log_seq += 1
+            path = self.logdir / f"{self.cfg.run_id}-{self._log_seq:04d}-{phase}.log"
+            if not path.exists():
+                return path
+
+    def _run_logged(
+        self, cmd: list[str], *, phase: str, timeout: float
+    ) -> tuple[int, Path, str]:
+        log_path = self._log_path(phase)
+        with open(log_path, "w", encoding="utf-8") as fh, self._store_lock():
+            proc = subprocess.run(
+                cmd, check=False, stdout=fh, stderr=subprocess.STDOUT, text=True, timeout=timeout
+            )
+        raw = log_path.read_text(errors="replace")
+        clean = scrub_secrets(raw)
+        if clean != raw:
+            log_path.write_text(clean, encoding="utf-8")
+        return proc.returncode, log_path, clean
+
+    def _critical_lockout(self) -> bool:
+        """rclone bisync rc 7 leaves a .lst-err and refuses every later run."""
+        return any(self.workdir.glob("*.lst-err"))
+
     def sync(self, extra: list[str] | None = None, *, timeout: float = 600) -> int:
         if os.environ.get("GTDB_SYNC_MODE", "bisync") == "overwrite":
             return self._sync_overwrite(timeout=timeout)
         cmd = self.bisync_cmd(extra)
+        phase = "sync"
+        if "--force" in cmd:
+            phase = "force"
+        elif "--resync" in cmd:
+            phase = "resync"
         t0 = time.time()
-        log = self.logdir / f"{len(self.sync_log):04d}.log"
-        with open(log, "w") as fh, self._store_lock():
-            proc = subprocess.run(
-                cmd, check=False, stdout=fh, stderr=subprocess.STDOUT, text=True, timeout=timeout
+        rc, log_path, out = self._run_logged(cmd, phase=phase, timeout=timeout)
+        entry: dict[str, Any] = {
+            "t": round(t0, 3),
+            "rc": rc,
+            "secs": round(time.time() - t0, 3),
+            "resync": "--resync" in cmd,
+            "log": log_path.name,
+            "out": log_excerpt(out),
+            "failure": rc != 0,
+            "_full": out,
+        }
+        if rc == 7 and self._critical_lockout():
+            # One automatic --resync. The lockout itself stays a failure even
+            # when that recovery run exits 0; otherwise a critical bisync
+            # stop would be counted as a clean sync.
+            entry["critical_lockout"] = True
+            entry["failure"] = True
+            rcmd = self.bisync_cmd(["--resync"])
+            rrc, rlog, rout = self._run_logged(rcmd, phase="auto-resync", timeout=timeout)
+            entry["auto_resync_rc"] = rrc
+            entry["auto_resync_log"] = rlog.name
+            self.sync_log.append(entry)
+            self.sync_log.append(
+                {
+                    "t": round(time.time(), 3),
+                    "rc": rrc,
+                    "secs": round(time.time() - t0, 3),
+                    "resync": True,
+                    "auto_recovery": True,
+                    "failure": True,
+                    "counts_as_success": False,
+                    "log": rlog.name,
+                    "out": log_excerpt(rout),
+                    "_full": rout,
+                }
             )
-        out = log.read_text(errors="replace")
-        self.sync_log.append(
-            {
-                "t": round(t0, 3),
-                "rc": proc.returncode,
-                "secs": round(time.time() - t0, 3),
-                "resync": "--resync" in cmd,
-                "log": log.name,
-                "out": out[-4000:],
-                "_full": out,
-            }
-        )
-        if proc.returncode == 0:
+            if rrc == 0:
+                self.synced_once = True
+            return rc
+        self.sync_log.append(entry)
+        if rc == 0:
             self.synced_once = True
-        return proc.returncode
+        return rc
 
     def _sync_overwrite(self, *, timeout: float) -> int:
         t0 = time.time()
-        log = self.logdir / f"{len(self.sync_log):04d}.log"
+        log_path = self._log_path("overwrite")
         rc = 0
-        with open(log, "w") as fh, self._store_lock():
+        with open(log_path, "w", encoding="utf-8") as fh, self._store_lock():
             for cmd in self.overwrite_cmds():
                 proc = subprocess.run(
                     cmd, check=False, stdout=fh, stderr=subprocess.STDOUT, text=True, timeout=timeout
                 )
                 rc = rc or proc.returncode
-        out = log.read_text(errors="replace")
+        raw = log_path.read_text(errors="replace")
+        out = scrub_secrets(raw)
+        if out != raw:
+            log_path.write_text(out, encoding="utf-8")
         self.sync_log.append(
             {
                 "t": round(t0, 3),
                 "rc": rc,
                 "secs": round(time.time() - t0, 3),
                 "resync": False,
-                "log": log.name,
-                "out": out[-4000:],
+                "log": log_path.name,
+                "out": log_excerpt(out),
+                "failure": rc != 0,
                 "_full": out,
             }
         )
@@ -386,7 +509,7 @@ class Writer:
         return exclusive_lock(lock_path_for(load_graph_meta(self.store).id, self.data))
 
     def start_sync(self, extra: list[str] | None = None) -> subprocess.Popen:
-        log = self.logdir / f"{len(self.sync_log):04d}-bg.log"
+        log = self._log_path("background")
         self.sync_log.append(
             {
                 "t": round(time.time(), 3),
@@ -397,10 +520,22 @@ class Writer:
                 "_full": "",
             }
         )
-        fh = open(log, "w")  # noqa: SIM115 (owned by the Popen)
-        return subprocess.Popen(
-            self.bisync_cmd(extra), stdout=fh, stderr=subprocess.STDOUT, text=True
+        proc = subprocess.Popen(
+            self.bisync_cmd(extra),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
         )
+
+        def pump() -> None:
+            assert proc.stdout is not None
+            with log.open("w", encoding="utf-8") as fh:
+                for line in proc.stdout:
+                    fh.write(scrub_secrets(line))
+                fh.flush()
+
+        threading.Thread(target=pump, name="gtdb-sync-log", daemon=True).start()
+        return proc
 
     def lock_files(self) -> list[Path]:
         return sorted(self.workdir.glob("*.lck"))
@@ -684,7 +819,7 @@ def finish(
             {
                 next(
                     (
-                        l.split("ERROR :", 1)[-1].strip()[:120]
+                        l.split("ERROR :", 1)[-1].strip()
                         for l in w.sync_log[-1]["out"].splitlines()
                         if "ERROR" in l
                     ),
@@ -712,8 +847,8 @@ def finish(
         "sync_failures": [
             {k: v for k, v in s.items() if k != "_full"}
             for s in a.sync_log + b.sync_log
-            if s["rc"] not in (0, None)
-        ][:5],
+            if s.get("failure") or s["rc"] not in (0, None)
+        ][:8],
         "conflict_lines": _conflict_lines(a, b),
     }
 
@@ -725,7 +860,7 @@ def _conflict_lines(*ws: Writer) -> list[str]:
             for line in s.get("_full", s["out"]).splitlines():
                 low = line.lower()
                 if "conflict" in low or "renam" in low or "both path" in low:
-                    out.append(f"{w.name}: " + line.split(":", 3)[-1].strip()[:200])
+                    out.append(f"{w.name}: " + scrub_secrets(line).split(":", 3)[-1].strip())
     return out[:40]
 
 
@@ -1008,7 +1143,7 @@ def sc6b_kill_rclone(cfg: Config, name: str = "s6b_kill_rclone", n: int = 6000) 
     notes["a_retry_rc_with_stale_lock"] = a.sync()
     notes["a_retry_error"] = next(
         (
-            l.split("NOTICE:", 1)[-1].strip()[:160]
+            l.split("NOTICE:", 1)[-1].strip()
             for l in a.sync_log[-1]["out"].splitlines()
             if "Failed to bisync" in l
         ),
@@ -1101,7 +1236,8 @@ def sc8_native_conflict_names(cfg: Config, name: str = "s8_native_names") -> dic
         init_graph(root, name=label, exist_ok=True)
         s = GraphStore.open(root, data_dir=base / f"{label}-data")
         n = s.make_node(labels=["X"], props={"k": 1}, record_id=rid(name, label, "node", 0))
-        shard = s.paths.node_shard(n.id)
+        s.publish()
+        shard = next(s.paths.nodes_dir.glob(f"*.{s.writer_id}.*.jsonl"))
         fork = shard.with_name(pattern.format(s=shard.stem))
         os.replace(shard, fork)
         s2 = GraphStore.open(root, data_dir=base / f"{label}-data2")
@@ -1253,10 +1389,10 @@ def cmd_run(args: argparse.Namespace) -> int:
         except Exception as exc:
             import traceback
 
-            res = {"scenario": key, "error": repr(exc), "trace": traceback.format_exc()[-3000:]}
+            res = {"scenario": key, "error": repr(exc), "trace": traceback.format_exc()}
         res["secs"] = round(time.time() - t0, 1)
-        report["results"].append(res)
-        out_path.write_text(json.dumps(report, indent=2, default=str))
+        report["results"].append(scrub_obj(res))
+        out_path.write_text(json.dumps(scrub_obj(report), indent=2, default=str))
         v = res.get("verdict") or res.get("results") or res.get("error")
         print(f"{key}: {json.dumps(v, default=str)}", flush=True)
     print(f"results: {out_path}")

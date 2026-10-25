@@ -46,6 +46,7 @@ def _writer_store(tmp_path: Path) -> Path:
                 props={},
             )
         )
+    g.publish()
     return root
 
 
