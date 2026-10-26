@@ -8,6 +8,7 @@ import logging
 import os
 import signal
 import stat as stat_mod
+import sys
 import threading
 import time
 import weakref
@@ -50,6 +51,7 @@ from graph_ted_db.store.lock import (
     index_dir_for,
     lock_path_for,
     stage_dir_for,
+    try_exclusive_lock,
     wal_dir_for,
     writer_path_for,
 )
@@ -100,10 +102,25 @@ log = logging.getLogger("graph_ted_db")
 _LIVE: weakref.WeakSet[GraphStore] = weakref.WeakSet()
 
 
+# How long process exit will wait for the publisher and the process lock.
+# A seal that is still running is left in the active log; the next open
+# seals those bytes. Waiting longer than this is how a daemon thread that
+# holds the lock (and then stops for interpreter finalization) pins the
+# process after pytest has already printed its summary.
+_EXIT_LOCK_SECONDS = 2.0
+
+
+def _interpreter_is_finalizing() -> bool:
+    is_finalizing = getattr(sys, "is_finalizing", None)
+    if is_finalizing is None:
+        return False
+    return bool(is_finalizing())
+
+
 def _publish_on_exit() -> None:
     for store in list(_LIVE):
         try:
-            store.close()
+            store._close_for_exit()
         except Exception:
             log.debug("graph-ted-db: exit publish failed", exc_info=True)
 
@@ -1114,14 +1131,72 @@ class GraphStore(_GraphStoreAliases):
     def close(self) -> None:
         """Seal active logs and stop the background publisher."""
         self._stop.set()
+        self._join_publisher(timeout=None)
         try:
             self.publish()
         except Exception:
             log.debug("graph-ted-db: close could not publish", exc_info=True)
 
+    def _close_for_exit(self) -> None:
+        """Seal on process exit, and give up if the lock stays busy.
+
+        ``atexit`` runs before ``sys.is_finalizing()`` is true. A daemon
+        publisher can be inside the process lock, and once finalization
+        freezes that thread the main thread's ``flock`` never returns.
+        Bytes already fsynced in the active log are sealed by the next open.
+        """
+        self._stop.set()
+        if not self._join_publisher(timeout=_EXIT_LOCK_SECONDS):
+            log.debug(
+                "graph-ted-db: publisher still running at exit; next open seals the active log"
+            )
+            return
+        if not self._publish_without_waiting():
+            log.debug("graph-ted-db: exit seal skipped; next open seals the active log")
+
+    def _join_publisher(self, *, timeout: float | None) -> bool:
+        """Wait until the publisher thread is gone. True if it is not running."""
+        publisher = self._publisher
+        if publisher is None or not publisher.is_alive():
+            return True
+        if publisher is threading.current_thread():
+            return True
+        publisher.join(timeout=timeout)
+        return not publisher.is_alive()
+
+    def _publish_without_waiting(self) -> bool:
+        """Seal if the process lock is free. False if another holder has it."""
+        if not self._thread_lock.acquire(timeout=_EXIT_LOCK_SECONDS):
+            return False
+        try:
+            if self._lock_depth:
+                self._lock_depth += 1
+                try:
+                    self._publish_due_unlocked(force=True)
+                finally:
+                    self._lock_depth -= 1
+                return True
+            with try_exclusive_lock(self._lock_path, timeout=0) as locked:
+                if not locked:
+                    return False
+                self._lock_depth = 1
+                try:
+                    self._publish_due_unlocked(force=True)
+                finally:
+                    self._lock_depth = 0
+                return True
+        finally:
+            self._thread_lock.release()
+
     def __del__(self) -> None:
         stop = getattr(self, "_stop", None)
         if stop is None or stop.is_set():
+            return
+        # Late GC runs after finalization has frozen every other thread.
+        # Taking the process lock here deadlocks if one of those threads
+        # still holds it. The active log stays durable for the next open.
+        if _interpreter_is_finalizing():
+            stop.set()
             return
         try:
             self.close()

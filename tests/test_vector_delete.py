@@ -322,6 +322,7 @@ def test_http_delete_and_inprocess_delete_hide_vectors(tmp_path: Path) -> None:
         server.shutdown()
         server.server_close()
         thread.join(timeout=2)
+        assert not thread.is_alive()
 
 
 def test_newer_vector_from_other_writer_stays_unsearchable(tmp_path: Path) -> None:

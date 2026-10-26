@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sys
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -52,20 +53,44 @@ def stage_dir_for(graph_id: str, data_dir: Path | None = None) -> Path:
     return (data_dir or default_data_dir()) / graph_id / "stage"
 
 
+def _prepare_win_lock(fd) -> None:
+    fd.seek(0, os.SEEK_END)
+    if fd.tell() == 0:
+        fd.write("0")
+        fd.flush()
+    fd.seek(0)
+
+
 def _lock_fd(fd) -> None:
     if sys.platform == "win32":
         import msvcrt
 
-        fd.seek(0, os.SEEK_END)
-        if fd.tell() == 0:
-            fd.write("0")
-            fd.flush()
-        fd.seek(0)
+        _prepare_win_lock(fd)
         msvcrt.locking(fd.fileno(), msvcrt.LK_LOCK, 1)
     else:
         import fcntl
 
         fcntl.flock(fd.fileno(), fcntl.LOCK_EX)
+
+
+def _lock_fd_nb(fd) -> bool:
+    """Take the lock if it is free. False means another holder has it."""
+    if sys.platform == "win32":
+        import msvcrt
+
+        _prepare_win_lock(fd)
+        try:
+            msvcrt.locking(fd.fileno(), msvcrt.LK_NBLCK, 1)
+        except OSError:
+            return False
+        return True
+    import fcntl
+
+    try:
+        fcntl.flock(fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        return False
+    return True
 
 
 def _unlock_fd(fd) -> None:
@@ -89,3 +114,25 @@ def exclusive_lock(path: Path) -> Iterator[None]:
             yield
         finally:
             _unlock_fd(fd)
+
+
+@contextmanager
+def try_exclusive_lock(path: Path, timeout: float) -> Iterator[bool]:
+    """Like ``exclusive_lock``, but yield False instead of waiting past ``timeout``.
+
+    ``timeout`` of 0 tries once. The yielded value is whether this process
+    holds the lock for the rest of the block.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a+", encoding="utf-8") as fd:
+        locked = _lock_fd_nb(fd)
+        if not locked and timeout > 0:
+            deadline = time.monotonic() + timeout
+            while not locked and time.monotonic() < deadline:
+                time.sleep(0.01)
+                locked = _lock_fd_nb(fd)
+        try:
+            yield locked
+        finally:
+            if locked:
+                _unlock_fd(fd)

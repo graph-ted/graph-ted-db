@@ -149,13 +149,13 @@ Put the app-data directory on the same volume as the graph folder when you can, 
 | idle | 0.5 seconds | `GRAPH_TED_DB_PUBLISH_IDLE` | seal this long after the last write in that directory |
 | compact | 4 bundles | `GRAPH_TED_DB_COMPACT_AFTER` | auto-compact a directory after this many of this writer's sealed files |
 
-`GraphStore.publish()` and `GraphStore.close()` seal immediately. A normal process exit does too. A `SIGKILL` leaves the bytes in the active log; the next `open` seals them, including anything the WAL replayed.
+`GraphStore.publish()` and `GraphStore.close()` seal immediately. A normal process exit does too, unless a background publish still holds the process lock: exit does not wait on that lock, and the next `open` seals the active log. A `SIGKILL` leaves the bytes in the active log the same way; the next `open` seals them, including anything the WAL replayed.
 
 **Visibility lag**, not counting the sync client:
 
 - while writing continuously, a record is in the synced folder within `max_interval` (or sooner, when the directory's `max_bytes` is hit);
 - after the last write, within `idle`;
-- immediately on `publish()` / `close()` / process exit;
+- immediately on `publish()` / `close()`, and on process exit when the lock is free;
 - after a crash, on the next `open`.
 
 Other devices see the record only after their sync client copies the new bundle. On this device the record is durable when the active log (or the WAL, for a multi-record transaction) has been fsynced, which is before the seal. This device reads its own active log, so it does not wait.
