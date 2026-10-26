@@ -40,6 +40,7 @@ Aimed at the queries the graph-ted app and the Graphiti driver send.
 |---|---|
 | Node labels | `NodeRecord.labels` |
 | `n.uuid` | `props.uuid` if set, else record `id` |
+| `n.name_embedding` and any `*_embedding` | the vector record under `vectors/<property>/` (not `props`) |
 | Other `n.foo` | `props.foo` |
 | Rel type `[:MENTIONS]` | `EdgeRecord.type` |
 | `type(r)` / `r.name` | type vs `props.name` (Graphiti stores HAS_FORM on `r.name`) |

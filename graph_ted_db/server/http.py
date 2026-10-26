@@ -7,7 +7,6 @@ import json
 import logging
 import os
 import re
-import socket
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
@@ -34,9 +33,15 @@ class GraphTedHTTPServer(ThreadingHTTPServer):
     # One thread per request. Concurrent /cypher calls share one GraphStore;
     # store._lock (threading.RLock plus the process file lock) serializes
     # execute and transactions so _tx and _lock_depth stay single-threaded.
-    # False: on Windows, SO_REUSEADDR lets a second serve bind 8099 while an
-    # old process still owns the port; curl then hits the leftover graph.
-    allow_reuse_address = False
+    #
+    # POSIX: SO_REUSEADDR lets a new serve bind this port while the previous
+    # process's connections are still in TIME_WAIT (or still draining). It
+    # does not allow two listening sockets on the same address. Windows
+    # SO_REUSEADDR does allow a second listener to take the port, so leave
+    # reuse off there. SO_EXCLUSIVEADDRUSE would also refuse the bind for the
+    # whole TIME_WAIT and make a stop-then-start fail; the default Windows
+    # bind already rejects a second listener when SO_REUSEADDR is unset.
+    allow_reuse_address = os.name != "nt"
     daemon_threads = True
     # listen() backlog. socketserver defaults to 5, which a burst of
     # concurrent clients (the engine fans out writes in parallel) overflows
@@ -44,13 +49,6 @@ class GraphTedHTTPServer(ThreadingHTTPServer):
     # ACKs (1 s+ retransmit stalls) and, under CPU load, can answer a sent
     # request with a connection reset. The kernel caps this at somaxconn.
     request_queue_size = 128
-
-    def server_bind(self) -> None:
-        if os.name == "nt":
-            exclusive = getattr(socket, "SO_EXCLUSIVEADDRUSE", None)
-            if exclusive is not None:
-                self.socket.setsockopt(socket.SOL_SOCKET, exclusive, 1)
-        super().server_bind()
 
     def __init__(
         self,

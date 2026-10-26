@@ -2,12 +2,39 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from contextvars import ContextVar, Token
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any
 from uuid import UUID
 
 from graph_ted_db.store.records import EdgeRecord, NodeRecord
+
+# Query-time lookup of embedding floats by record id. The store binds this for
+# the duration of one Cypher execution. The dict it returns is the live bucket:
+# a vector write later in the same statement shows up on views already bound.
+_VectorLookup = Callable[[str], dict[str, tuple[float, ...]]]
+_VECTOR_LOOKUP: ContextVar[_VectorLookup | None] = ContextVar(
+    "graph_ted_db_vector_lookup",
+    default=None,
+)
+
+
+def bind_vector_lookup(lookup: _VectorLookup) -> Token[_VectorLookup | None]:
+    return _VECTOR_LOOKUP.set(lookup)
+
+
+def reset_vector_lookup(token: Token[_VectorLookup | None]) -> None:
+    _VECTOR_LOOKUP.reset(token)
+
+
+def _vectors_for(record_id: str) -> dict[str, tuple[float, ...]] | None:
+    lookup = _VECTOR_LOOKUP.get()
+    if lookup is None:
+        return None
+    return lookup(record_id)
+
 
 _GRAPHITI_EPOCH = "1970-01-01T00:00:00+00:00"
 _GRAPHITI_NODE_STRINGS = {
@@ -56,11 +83,17 @@ class NodeView:
     labels: tuple[str, ...]
     props: dict[str, Any]
     updated_at: str = ""
+    # Live embedding bucket for this id. Not part of props, so a later SET of
+    # some other property does not write the floats back into the node file.
+    vectors: dict[str, tuple[float, ...]] | None = None
 
     def has_label(self, label: str) -> bool:
         return label in self.labels
 
     def get(self, key: str) -> Any:
+        embedded = _vector_values(self.vectors, key)
+        if embedded is not None:
+            return embedded
         return _graphiti_prop(
             self.props,
             key,
@@ -71,6 +104,7 @@ class NodeView:
 
     def properties(self) -> dict[str, Any]:
         out = dict(self.props)
+        _merge_vectors(out, self.vectors)
         out.setdefault("uuid", self.id)
         for key in ("created_at", "summary", "group_id", "name"):
             if out.get(key) is None:
@@ -96,8 +130,12 @@ class RelView:
     to_id: str
     props: dict[str, Any]
     updated_at: str = ""
+    vectors: dict[str, tuple[float, ...]] | None = None
 
     def get(self, key: str) -> Any:
+        embedded = _vector_values(self.vectors, key)
+        if embedded is not None:
+            return embedded
         return _graphiti_prop(
             self.props,
             key,
@@ -108,6 +146,7 @@ class RelView:
 
     def properties(self) -> dict[str, Any]:
         out = dict(self.props)
+        _merge_vectors(out, self.vectors)
         out.setdefault("uuid", self.id)
         for key in ("created_at", "fact", "name", "group_id", "episodes"):
             if out.get(key) is None:
@@ -125,12 +164,33 @@ class RelView:
         return hash(self.id)
 
 
+def _vector_values(
+    vectors: dict[str, tuple[float, ...]] | None,
+    key: str,
+) -> list[float] | None:
+    if not vectors:
+        return None
+    values = vectors.get(key)
+    if not values:
+        return None
+    return list(values)
+
+
+def _merge_vectors(props: dict[str, Any], vectors: dict[str, tuple[float, ...]] | None) -> None:
+    if not vectors:
+        return
+    for key, values in vectors.items():
+        if values:
+            props[key] = list(values)
+
+
 def node_view(record: NodeRecord) -> NodeView:
     return NodeView(
         id=record.id,
         labels=record.labels,
         props=dict(record.props),
         updated_at=record.updated_at,
+        vectors=_vectors_for(record.id),
     )
 
 
@@ -142,6 +202,7 @@ def rel_view(record: EdgeRecord) -> RelView:
         to_id=record.to_id,
         props=dict(record.props),
         updated_at=record.updated_at,
+        vectors=_vectors_for(record.id),
     )
 
 

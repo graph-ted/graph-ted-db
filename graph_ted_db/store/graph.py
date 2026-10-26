@@ -267,6 +267,11 @@ class GraphStore(_GraphStoreAliases):
         self._cloud_only: list[str] = []
         self._empty_files: list[str] = []
         self._tx: _Txn | None = None
+        # Embeddings keyed by record id, then property name. Rebuilt when the
+        # vector files change. Query views hold the inner dict, so a write in
+        # the same statement is visible without a second scan.
+        self._vector_map: dict[str, dict[str, tuple[float, ...]]] | None = None
+        self._vector_fp: tuple[tuple[str, int, int], ...] | None = None
         self._lock_depth = 0
         # flock serializes other processes. It does not cover the
         # _lock_depth short-circuit: a second thread in this process saw a
@@ -545,6 +550,7 @@ class GraphStore(_GraphStoreAliases):
         record = self._stamp(record)
         if self._tx is not None:
             self._tx.ops.append(("put_vector", record))
+            self._cache_put_vector(record)
             return record
         self._disk_put_vector(record)
         return record
@@ -553,6 +559,84 @@ class GraphStore(_GraphStoreAliases):
         path = self.paths.vector_shard(record.property, record.id)
         self._append(path, record.to_jsonl())
         self._remember_labels(vector_properties=(record.property,))
+        self._cache_put_vector(record)
+        # The file changed. The next query reloads; views already holding a
+        # bucket keep the value just cached.
+        self._vector_fp = None
+
+    def _cache_put_vector(self, record: VectorRecord) -> None:
+        if self._vector_map is None:
+            return
+        bucket = self._vector_map.setdefault(record.id, {})
+        bucket[record.property] = record.floats()
+
+    def _cache_drop_vector(self, record_id: str, property_name: str) -> None:
+        if self._vector_map is None:
+            return
+        bucket = self._vector_map.get(record_id)
+        if bucket is not None:
+            bucket.pop(property_name, None)
+
+    def _ensure_vector_map_unlocked(self) -> None:
+        """Load live embeddings if the vector files changed since last time.
+
+        Call this before building query views. A map that is already current
+        is left in place so those views keep sharing its buckets.
+        """
+        fp = self._vector_fingerprint()
+        if self._vector_map is not None and fp == self._vector_fp:
+            return
+        loaded: dict[str, dict[str, tuple[float, ...]]] = {}
+        for vec in self._lww_vectors_unlocked():
+            loaded.setdefault(vec.id, {})[vec.property] = vec.floats()
+        if self._tx is not None:
+            for kind, payload in self._tx.ops:
+                if kind == "put_vector":
+                    loaded.setdefault(payload.id, {})[payload.property] = payload.floats()
+                elif kind == "delete_vector" and payload.kind == "vector" and payload.property:
+                    loaded.get(payload.id, {}).pop(payload.property, None)
+        self._vector_map = loaded
+        self._vector_fp = fp
+
+    def _vector_bucket_unlocked(self, record_id: str) -> dict[str, tuple[float, ...]]:
+        if self._vector_map is None:
+            self._ensure_vector_map_unlocked()
+        assert self._vector_map is not None
+        bucket = self._vector_map.get(record_id)
+        if bucket is None:
+            bucket = {}
+            self._vector_map[record_id] = bucket
+        return bucket
+
+    def _vector_fingerprint(self) -> tuple[tuple[str, int, int], ...]:
+        """mtime+size of vector JSONL, including bundles and the active log."""
+        items: list[tuple[str, int, int]] = []
+        seen: set[str] = set()
+
+        def add(path: Path) -> None:
+            if not path.is_file():
+                return
+            try:
+                st = path.stat()
+            except OSError:
+                return
+            if st.st_size == 0:
+                return
+            key = self._fp_key(path)
+            if key in seen:
+                return
+            seen.add(key)
+            items.append((key, st.st_mtime_ns, st.st_size))
+
+        for name in self._vector_property_names():
+            directory = self.paths.vectors_dir / name
+            if directory.is_dir():
+                for child in directory.iterdir():
+                    if child.is_file() and is_record_file_name(child.name):
+                        add(child)
+            for path in self._active_logs(directory):
+                add(path)
+        return tuple(sorted(items))
 
     def get_vector(self, property_name: str, record_id: str) -> VectorRecord | None:
         """Return the live embedding `property_name` for a node or edge id, or None.
@@ -589,6 +673,8 @@ class GraphStore(_GraphStoreAliases):
         with self._lock():
             tomb = self._stamp(replace(tomb, updated_at=self._clock_now()))
             self._append(self.paths.deleted_jsonl, tomb.to_jsonl())
+            self._cache_drop_vector(record_id, property_name)
+            self._vector_fp = None
         return tomb
 
     # --- helpers for callers ---
@@ -746,6 +832,8 @@ class GraphStore(_GraphStoreAliases):
 
     def _rollback_unlocked(self) -> None:
         self._tx = None
+        self._vector_map = None
+        self._vector_fp = None
         self._rebuild_index_unlocked()
 
     def _apply_ops_durable(self, ops: list[tuple[str, Any]]) -> None:

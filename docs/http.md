@@ -102,7 +102,7 @@ Loopback binds (`127.0.0.1`, `localhost`, `::1`) may run with no token.
 
 Binding any other host requires a token: `--token` or env `GRAPH_TED_DB_TOKEN`. Serve refuses to start (exit 1) if the host is off-loopback and the token is empty. Default bind remains `127.0.0.1`. Even with a token, serve prints a warning when it listens off loopback: traffic is plain HTTP, so anyone on the network path can read it. Prefer loopback, or put the daemon behind TLS.
 
-If the port is taken, serve exits with `port N in use; pass --port`.
+If a live server already has the port, serve exits with `port N in use; pass --port`. After that process has exited, a new serve binds the same port even while the old connections are still closing. Two live servers cannot listen on one port.
 
 When a token is configured, every route except `GET /health` requires one of:
 

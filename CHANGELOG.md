@@ -6,6 +6,18 @@ version may include breaking changes; they are called out under **Changed**.
 
 ## [Unreleased]
 
+### Fixed
+
+- Vector similarity over `serve` returns hits. Embeddings written with
+  `SET n = …` or `CALL db.create.setNodeVectorProperty` /
+  `setRelationshipVectorProperty` are stored under `vectors/` and are read
+  back on `n.<property>` (and `properties(n)`), including after the active
+  log is sealed into a v4 bundle. Cosine search no longer scores every row
+  as null.
+- `graph-ted-db serve` can bind its port again as soon as the previous
+  process has stopped, while that process's connections are still draining.
+  A second live server still cannot listen on the same port.
+
 ### Added
 
 - `py.typed` marker (PEP 561): type checkers use graph-ted-db's inline types.
