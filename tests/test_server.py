@@ -152,6 +152,55 @@ def test_second_listener_on_same_port_fails(tmp_path: Path):
         other.server_close()
 
 
+def test_stop_then_start_reuses_port(tmp_path: Path):
+    """Stop-then-start on one port succeeds while the old connections drain.
+
+    A quick restart used to fail with 'port in use' (2 of 4 on a Linux install
+    test) because the listening socket did not set address reuse. A second
+    live server still must not bind that port.
+    """
+    g = _open(tmp_path)
+    server = make_server(g, "127.0.0.1", 0)
+    host, port = server.server_address[:2]
+    port = int(port)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    conns = []
+    try:
+        for _ in range(4):
+            conn = _conn(str(host), port)
+            conn.request("GET", "/health")
+            body = json.loads(conn.getresponse().read())
+            assert body["ok"] is True
+            conns.append(conn)
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+        restarted = make_server(g, str(host), port)
+    except Exception:
+        server.shutdown()
+        server.server_close()
+        raise
+    finally:
+        for conn in conns:
+            conn.close()
+    restart_thread = threading.Thread(target=restarted.serve_forever, daemon=True)
+    restart_thread.start()
+    try:
+        with pytest.raises(OSError):
+            extra = make_server(g, str(host), port)
+            extra.server_close()
+        conn = _conn(str(host), port)
+        conn.request("GET", "/health")
+        body = json.loads(conn.getresponse().read())
+        assert body["ok"] is True
+        conn.close()
+    finally:
+        restarted.shutdown()
+        restarted.server_close()
+        restart_thread.join(timeout=2)
+
+
 def test_post_cypher_statements_batch(tmp_path: Path):
     g = _open(tmp_path)
     with _serve(g) as (host, port):
