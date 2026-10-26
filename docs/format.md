@@ -149,13 +149,13 @@ Put the app-data directory on the same volume as the graph folder when you can, 
 | idle | 0.5 seconds | `GRAPH_TED_DB_PUBLISH_IDLE` | seal this long after the last write in that directory |
 | compact | 4 bundles | `GRAPH_TED_DB_COMPACT_AFTER` | auto-compact a directory after this many of this writer's sealed files |
 
-`GraphStore.publish()` and `GraphStore.close()` seal immediately. A normal process exit does too. A `SIGKILL` leaves the bytes in the active log; the next `open` seals them, including anything the WAL replayed.
+`GraphStore.publish()` and `GraphStore.close()` seal immediately. A normal process exit does too, unless a background publish still holds the process lock: exit does not wait on that lock, and the next `open` seals the active log. A `SIGKILL` leaves the bytes in the active log the same way; the next `open` seals them, including anything the WAL replayed.
 
 **Visibility lag**, not counting the sync client:
 
 - while writing continuously, a record is in the synced folder within `max_interval` (or sooner, when the directory's `max_bytes` is hit);
 - after the last write, within `idle`;
-- immediately on `publish()` / `close()` / process exit;
+- immediately on `publish()` / `close()`, and on process exit when the lock is free;
 - after a crash, on the next `open`.
 
 Other devices see the record only after their sync client copies the new bundle. On this device the record is durable when the active log (or the WAL, for a multi-record transaction) has been fsynced, which is before the seal. This device reads its own active log, so it does not wait.
@@ -274,6 +274,10 @@ Path: `meta/deleted.<writer>.<seq>.jsonl`
 `kind` is `node`, `edge`, or `vector`. For `vector`, include `"property": "name_embedding"`.
 
 A tombstone dominates a live record with the same id (and property, for vectors) iff the tombstone **wins LWW** against that record. A later live record with a newer `updated_at` resurrects the id.
+
+Deleting a node or an edge also writes one `kind: "vector"` tombstone for each embedding that is live for that id, and a node delete does the same for the incident edges it detaches. Those lines use the tombstone shape above (`property` is already required when `kind` is `vector`). They are part of the same transaction as the node or edge tombstone: one commit record, so a crash keeps or drops the element and its embeddings together. This does not change `format_version`.
+
+An embedding is not a search hit unless its owner is a live node or a live edge. A concurrent writer can store a newer vector that wins LWW against the vector tombstone; search still skips it while the owner stays deleted. Writing the element again, with a newer embedding, makes that new embedding searchable.
 
 **Retention.** Tombstones are kept forever in this version. `compact` keeps this writer's winning tombstone per id and publishes it as a new segment; it does not delete another writer's tombstones. So a device that was offline for a long time and comes back with old versions cannot bring deleted records back: its old versions are older than the tombstone and lose. Only a version stamped **after** the tombstone wins, which is an edit, not a resurrection by accident. A future cleanup must not drop a tombstone until every registered writer is known to have seen it.
 

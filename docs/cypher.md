@@ -45,7 +45,7 @@ Aimed at the queries the graph-ted app and the Graphiti driver send.
 | Rel type `[:MENTIONS]` | `EdgeRecord.type` |
 | `type(r)` / `r.name` | type vs `props.name` (Graphiti stores HAS_FORM on `r.name`) |
 | `elementId(r)` | edge record `id` |
-| `DETACH DELETE n` | `delete_node` (tombstone node + incident edges) |
+| `DELETE` / `DETACH DELETE` | `delete_node` / `delete_edge`. A node delete tombstones the node, its incident edges, and every live embedding of those elements, in one transaction. An edge delete tombstones that edge and its embeddings. Vector search does not return an element whose tombstone won |
 
 ## API
 

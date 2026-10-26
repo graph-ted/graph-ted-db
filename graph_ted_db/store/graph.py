@@ -8,6 +8,7 @@ import logging
 import os
 import signal
 import stat as stat_mod
+import sys
 import threading
 import time
 import weakref
@@ -50,6 +51,7 @@ from graph_ted_db.store.lock import (
     index_dir_for,
     lock_path_for,
     stage_dir_for,
+    try_exclusive_lock,
     wal_dir_for,
     writer_path_for,
 )
@@ -100,10 +102,25 @@ log = logging.getLogger("graph_ted_db")
 _LIVE: weakref.WeakSet[GraphStore] = weakref.WeakSet()
 
 
+# How long process exit will wait for the publisher and the process lock.
+# A seal that is still running is left in the active log; the next open
+# seals those bytes. Waiting longer than this is how a daemon thread that
+# holds the lock (and then stops for interpreter finalization) pins the
+# process after pytest has already printed its summary.
+_EXIT_LOCK_SECONDS = 2.0
+
+
+def _interpreter_is_finalizing() -> bool:
+    is_finalizing = getattr(sys, "is_finalizing", None)
+    if is_finalizing is None:
+        return False
+    return bool(is_finalizing())
+
+
 def _publish_on_exit() -> None:
     for store in list(_LIVE):
         try:
-            store.close()
+            store._close_for_exit()
         except Exception:
             log.debug("graph-ted-db: exit publish failed", exc_info=True)
 
@@ -409,9 +426,16 @@ class GraphStore(_GraphStoreAliases):
             return self._get_node_unlocked(record_id)
 
     def delete_node(self, record_id: str, *, updated_by: str = "") -> Tombstone:
-        """Tombstone a node and every live incident edge (DETACH DELETE)."""
+        """Tombstone a node, its embeddings, and every live incident edge.
+
+        Incident edges are tombstoned too (DETACH DELETE), along with each
+        edge's embeddings. The node tombstone, the edge tombstones, and the
+        vector tombstones commit as one transaction.
+        """
         record_id = normalize_uuid(record_id)
         with self._lock():
+            if self._tx is None:
+                self._refresh_index_unlocked()
             now = self._clock_now()
             return self._delete_node_unlocked(record_id, updated_by=updated_by, now=now)
 
@@ -422,9 +446,28 @@ class GraphStore(_GraphStoreAliases):
         updated_by: str = "",
         now: str | None = None,
     ) -> Tombstone:
+        own = self._tx is None
+        if own:
+            self._begin_unlocked()
+        try:
+            tomb = self._delete_node_in_tx(record_id, updated_by=updated_by, now=now)
+        except Exception:
+            if own:
+                self._rollback_unlocked()
+            raise
+        if own:
+            self._commit_unlocked()
+        return tomb
+
+    def _delete_node_in_tx(
+        self,
+        record_id: str,
+        *,
+        updated_by: str = "",
+        now: str | None = None,
+    ) -> Tombstone:
         stamp = now or self._clock_now()
         record_id = normalize_uuid(record_id)
-        incident: list[str] = []
         if self._index is not None:
             incident = [entry.edge_id for entry in self._index.adj.get(record_id, ())]
         else:
@@ -435,21 +478,20 @@ class GraphStore(_GraphStoreAliases):
             ]
         for edge_id in incident:
             self._delete_edge_unlocked(edge_id, updated_by=updated_by, now=stamp)
-        tomb = Tombstone(
-            id=record_id,
-            kind="node",
-            updated_at=stamp,
-            updated_by=updated_by,
+        self._tombstone_vectors_unlocked(record_id, updated_by=updated_by, now=stamp)
+        tomb = self._stamp(
+            Tombstone(
+                id=record_id,
+                kind="node",
+                updated_at=stamp,
+                updated_by=updated_by,
+            )
         )
-        tomb = self._stamp(tomb)
-        if self._tx is not None:
-            self._tx.ops.append(("delete_node", tomb))
-            if self._index is not None:
-                self._index.remove_node(record_id)
-            return tomb
-        self._disk_delete_tomb(tomb)
+        assert self._tx is not None
+        self._tx.ops.append(("delete_node", tomb))
         if self._index is not None:
             self._index.remove_node(record_id)
+        self._forget_vectors_unlocked(record_id)
         return tomb
 
     def iter_nodes(self) -> Iterator[NodeRecord]:
@@ -497,16 +539,15 @@ class GraphStore(_GraphStoreAliases):
             return self._get_graph_edge_unlocked(record_id)
 
     def delete_edge(self, record_id: str, *, updated_by: str = "") -> Tombstone:
-        """Tombstone one edge. Returns the tombstone that was written."""
+        """Tombstone one edge and its embeddings. Returns the edge tombstone.
+
+        The edge tombstone and its vector tombstones commit as one transaction.
+        """
         record_id = normalize_uuid(record_id)
-        tomb = Tombstone(
-            id=record_id,
-            kind="edge",
-            updated_at=self._clock_now(),
-            updated_by=updated_by,
-        )
         with self._lock():
-            return self._delete_edge_unlocked(record_id, updated_by=updated_by, now=tomb.updated_at)
+            if self._tx is None:
+                self._refresh_index_unlocked()
+            return self._delete_edge_unlocked(record_id, updated_by=updated_by)
 
     def _delete_edge_unlocked(
         self,
@@ -515,22 +556,42 @@ class GraphStore(_GraphStoreAliases):
         updated_by: str = "",
         now: str | None = None,
     ) -> Tombstone:
+        own = self._tx is None
+        if own:
+            self._begin_unlocked()
+        try:
+            tomb = self._delete_edge_in_tx(record_id, updated_by=updated_by, now=now)
+        except Exception:
+            if own:
+                self._rollback_unlocked()
+            raise
+        if own:
+            self._commit_unlocked()
+        return tomb
+
+    def _delete_edge_in_tx(
+        self,
+        record_id: str,
+        *,
+        updated_by: str = "",
+        now: str | None = None,
+    ) -> Tombstone:
+        stamp = now or self._clock_now()
         record_id = normalize_uuid(record_id)
-        tomb = Tombstone(
-            id=record_id,
-            kind="edge",
-            updated_at=now or self._clock_now(),
-            updated_by=updated_by,
+        self._tombstone_vectors_unlocked(record_id, updated_by=updated_by, now=stamp)
+        tomb = self._stamp(
+            Tombstone(
+                id=record_id,
+                kind="edge",
+                updated_at=stamp,
+                updated_by=updated_by,
+            )
         )
-        tomb = self._stamp(tomb)
-        if self._tx is not None:
-            self._tx.ops.append(("delete_edge", tomb))
-            if self._index is not None:
-                self._index.remove_edge(record_id)
-            return tomb
-        self._disk_delete_tomb(tomb)
+        assert self._tx is not None
+        self._tx.ops.append(("delete_edge", tomb))
         if self._index is not None:
             self._index.remove_edge(record_id)
+        self._forget_vectors_unlocked(record_id)
         return tomb
 
     def iter_edges(self) -> Iterator[EdgeRecord]:
@@ -577,11 +638,27 @@ class GraphStore(_GraphStoreAliases):
         if bucket is not None:
             bucket.pop(property_name, None)
 
+    def _forget_vectors_unlocked(self, record_id: str, property_name: str | None = None) -> None:
+        """Drop cached embeddings for an id and force the next query to reload.
+
+        A node or edge tombstone does not change the vector files, so the
+        file fingerprint alone would keep serving the deleted floats.
+        """
+        if self._vector_map is not None:
+            if property_name is None:
+                bucket = self._vector_map.pop(record_id, None)
+                if bucket is not None:
+                    bucket.clear()
+            else:
+                self._cache_drop_vector(record_id, property_name)
+        self._vector_fp = None
+
     def _ensure_vector_map_unlocked(self) -> None:
-        """Load live embeddings if the vector files changed since last time.
+        """Load live embeddings if the vector files or tombstones changed.
 
         Call this before building query views. A map that is already current
-        is left in place so those views keep sharing its buckets.
+        is left in place so those views keep sharing its buckets. Embeddings
+        whose owner is not a live node or edge are omitted.
         """
         fp = self._vector_fingerprint()
         if self._vector_map is not None and fp == self._vector_fp:
@@ -595,10 +672,29 @@ class GraphStore(_GraphStoreAliases):
                     loaded.setdefault(payload.id, {})[payload.property] = payload.floats()
                 elif kind == "delete_vector" and payload.kind == "vector" and payload.property:
                     loaded.get(payload.id, {}).pop(payload.property, None)
+                elif kind in ("delete_node", "delete_edge"):
+                    loaded.pop(payload.id, None)
         self._vector_map = loaded
         self._vector_fp = fp
 
+    def _vector_owner_visible_unlocked(self, record_id: str) -> bool:
+        """True when the query catalog still has this id as a node or edge.
+
+        Vector search reads floats through the bucket lookup. Removing the
+        owner from the catalog (the same structure MATCH uses) keeps a stale
+        embedding cache from scoring a tombstoned node or edge.
+        """
+        index = self._index
+        if index is None:
+            return True
+        if record_id in index.nodes or record_id in index.edges:
+            return True
+        mapped = index.uuid_to_id.get(record_id)
+        return mapped is not None and mapped in index.nodes
+
     def _vector_bucket_unlocked(self, record_id: str) -> dict[str, tuple[float, ...]]:
+        if not self._vector_owner_visible_unlocked(record_id):
+            return {}
         if self._vector_map is None:
             self._ensure_vector_map_unlocked()
         assert self._vector_map is not None
@@ -609,7 +705,12 @@ class GraphStore(_GraphStoreAliases):
         return bucket
 
     def _vector_fingerprint(self) -> tuple[tuple[str, int, int], ...]:
-        """mtime+size of vector JSONL, including bundles and the active log."""
+        """mtime+size of vector JSONL and of tombstones.
+
+        Tombstones live under ``meta/``, not ``vectors/``. A delete must
+        still invalidate this cache, including a tombstone synced in from
+        another writer.
+        """
         items: list[tuple[str, int, int]] = []
         seen: set[str] = set()
 
@@ -636,10 +737,76 @@ class GraphStore(_GraphStoreAliases):
                         add(child)
             for path in self._active_logs(directory):
                 add(path)
+        for path in self._tombstone_files():
+            add(path)
         return tuple(sorted(items))
+
+    def _owner_live_on_disk_unlocked(self, record_id: str) -> bool:
+        """True when this id is a live node, or a live edge with live endpoints."""
+        if self._get_node_unlocked(record_id) is not None:
+            return True
+        return self._get_graph_edge_unlocked(record_id) is not None
+
+    def _live_vector_properties_unlocked(self, record_id: str) -> list[str]:
+        """Embedding properties whose winning record for this id is still live.
+
+        Includes vectors written earlier in the open transaction. Does not
+        require the owner element to be live: the caller is about to delete it.
+        """
+        record_id = normalize_uuid(record_id)
+        names = set(self._vector_property_names())
+        extra_lives: dict[str, list[VectorRecord]] = defaultdict(list)
+        extra_tombs: dict[str, list[Tombstone]] = defaultdict(list)
+        if self._vector_map is not None:
+            names.update(self._vector_map.get(record_id, ()))
+        if self._tx is not None:
+            for kind, payload in self._tx.ops:
+                if getattr(payload, "id", None) != record_id:
+                    continue
+                if kind == "put_vector":
+                    names.add(payload.property)
+                    extra_lives[payload.property].append(payload)
+                elif kind == "delete_vector" and payload.property:
+                    names.add(payload.property)
+                    extra_tombs[payload.property].append(payload)
+        if not names:
+            return []
+        disk_tombs: dict[str, list[Tombstone]] = defaultdict(list)
+        for tomb in self._iter_tombstones():
+            if tomb.kind == "vector" and tomb.id == record_id and tomb.property:
+                disk_tombs[tomb.property].append(tomb)
+        live: list[str] = []
+        for name in sorted(names):
+            lives = self._load_vectors_for(name, record_id)
+            lives.extend(extra_lives.get(name, ()))
+            tombs = disk_tombs.get(name, []) + extra_tombs.get(name, [])
+            picked = resolve(lives, tombs)
+            if picked is not None and not picked.is_tombstone:
+                live.append(name)
+        return live
+
+    def _tombstone_vectors_unlocked(self, record_id: str, *, updated_by: str, now: str) -> None:
+        """Append a vector tombstone for each live embedding of `record_id`.
+
+        The caller is inside a transaction, so these lines commit with the
+        node or edge tombstone. A crash before the commit record leaves both
+        the element and its embeddings in place.
+        """
+        assert self._tx is not None
+        for property_name in self._live_vector_properties_unlocked(record_id):
+            self._delete_vector_unlocked(
+                property_name,
+                record_id,
+                updated_by=updated_by,
+                now=now,
+            )
 
     def get_vector(self, property_name: str, record_id: str) -> VectorRecord | None:
         """Return the live embedding `property_name` for a node or edge id, or None.
+
+        None when the embedding is missing, tombstoned, or its owner is not a
+        live node or a live edge. A newer vector written concurrently does not
+        come back while that owner stays deleted.
 
         Raises:
             ValueError: If `property_name` is not a valid vector property name.
@@ -648,6 +815,8 @@ class GraphStore(_GraphStoreAliases):
             raise ValueError(f"invalid vector property name: {property_name!r}")
         record_id = normalize_uuid(record_id)
         with self._lock():
+            if not self._owner_live_on_disk_unlocked(record_id):
+                return None
             lives = self._load_vectors_for(property_name, record_id)
             tombs = self._tombstones("vector", record_id, property_name)
             picked = resolve(lives, tombs)
@@ -663,18 +832,39 @@ class GraphStore(_GraphStoreAliases):
         if not is_vector_property_name(property_name):
             raise ValueError(f"invalid vector property name: {property_name!r}")
         record_id = normalize_uuid(record_id)
-        tomb = Tombstone(
-            id=record_id,
-            kind="vector",
-            property=property_name,
-            updated_at=self._clock_now(),
-            updated_by=updated_by,
-        )
         with self._lock():
-            tomb = self._stamp(replace(tomb, updated_at=self._clock_now()))
-            self._append(self.paths.deleted_jsonl, tomb.to_jsonl())
-            self._cache_drop_vector(record_id, property_name)
-            self._vector_fp = None
+            return self._delete_vector_unlocked(property_name, record_id, updated_by=updated_by)
+
+    def _delete_vector_unlocked(
+        self,
+        property_name: str,
+        record_id: str,
+        *,
+        updated_by: str = "",
+        now: str | None = None,
+    ) -> Tombstone:
+        record_id = normalize_uuid(record_id)
+        # `now` was captured before this id's vectors were read. If one of
+        # them is newer (another writer's clock, or a future stamp), the
+        # tombstone has to sort after that version or the delete loses.
+        updated_at = now or self._clock_now()
+        if updated_at < self._hlc[0]:
+            updated_at = self._clock_now()
+        tomb = self._stamp(
+            Tombstone(
+                id=record_id,
+                kind="vector",
+                property=property_name,
+                updated_at=updated_at,
+                updated_by=updated_by,
+            )
+        )
+        if self._tx is not None:
+            self._tx.ops.append(("delete_vector", tomb))
+            self._forget_vectors_unlocked(record_id, property_name)
+            return tomb
+        self._disk_delete_tomb(tomb)
+        self._forget_vectors_unlocked(record_id, property_name)
         return tomb
 
     # --- helpers for callers ---
@@ -875,6 +1065,10 @@ class GraphStore(_GraphStoreAliases):
                         self._index.remove_node(payload.id)
                     elif kind == "delete_edge":
                         self._index.remove_edge(payload.id)
+                if kind == "delete_vector" and payload.property:
+                    self._forget_vectors_unlocked(payload.id, payload.property)
+                else:
+                    self._forget_vectors_unlocked(payload.id)
 
     def _wal_file(self) -> Path:
         return self._wal_dir / "current.jsonl"
@@ -937,14 +1131,72 @@ class GraphStore(_GraphStoreAliases):
     def close(self) -> None:
         """Seal active logs and stop the background publisher."""
         self._stop.set()
+        self._join_publisher(timeout=None)
         try:
             self.publish()
         except Exception:
             log.debug("graph-ted-db: close could not publish", exc_info=True)
 
+    def _close_for_exit(self) -> None:
+        """Seal on process exit, and give up if the lock stays busy.
+
+        ``atexit`` runs before ``sys.is_finalizing()`` is true. A daemon
+        publisher can be inside the process lock, and once finalization
+        freezes that thread the main thread's ``flock`` never returns.
+        Bytes already fsynced in the active log are sealed by the next open.
+        """
+        self._stop.set()
+        if not self._join_publisher(timeout=_EXIT_LOCK_SECONDS):
+            log.debug(
+                "graph-ted-db: publisher still running at exit; next open seals the active log"
+            )
+            return
+        if not self._publish_without_waiting():
+            log.debug("graph-ted-db: exit seal skipped; next open seals the active log")
+
+    def _join_publisher(self, *, timeout: float | None) -> bool:
+        """Wait until the publisher thread is gone. True if it is not running."""
+        publisher = self._publisher
+        if publisher is None or not publisher.is_alive():
+            return True
+        if publisher is threading.current_thread():
+            return True
+        publisher.join(timeout=timeout)
+        return not publisher.is_alive()
+
+    def _publish_without_waiting(self) -> bool:
+        """Seal if the process lock is free. False if another holder has it."""
+        if not self._thread_lock.acquire(timeout=_EXIT_LOCK_SECONDS):
+            return False
+        try:
+            if self._lock_depth:
+                self._lock_depth += 1
+                try:
+                    self._publish_due_unlocked(force=True)
+                finally:
+                    self._lock_depth -= 1
+                return True
+            with try_exclusive_lock(self._lock_path, timeout=0) as locked:
+                if not locked:
+                    return False
+                self._lock_depth = 1
+                try:
+                    self._publish_due_unlocked(force=True)
+                finally:
+                    self._lock_depth = 0
+                return True
+        finally:
+            self._thread_lock.release()
+
     def __del__(self) -> None:
         stop = getattr(self, "_stop", None)
         if stop is None or stop.is_set():
+            return
+        # Late GC runs after finalization has frozen every other thread.
+        # Taking the process lock here deadlocks if one of those threads
+        # still holds it. The active log stays durable for the next open.
+        if _interpreter_is_finalizing():
+            stop.set()
             return
         try:
             self.close()
@@ -1158,6 +1410,8 @@ class GraphStore(_GraphStoreAliases):
                     grouped[rec.id].append(rec)
             for record_id, lives in grouped.items():
                 picked = resolve(lives, tombs.get(record_id, []))
+                # A vector whose node or edge lost LWW is not searchable, even
+                # when a concurrent writer stored a newer embedding.
                 if picked is not None and not picked.is_tombstone and record_id in live:
                     assert isinstance(picked.payload, VectorRecord)
                     out.append(picked.payload)

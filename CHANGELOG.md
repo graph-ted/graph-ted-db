@@ -8,6 +8,16 @@ version may include breaking changes; they are called out under **Changed**.
 
 ### Fixed
 
+- Process exit does not wait forever on the store lock. If a background
+  publish still holds it, the active log stays as it is and the next open
+  seals it (the same recovery as after `SIGKILL`).
+- Deleting a node or edge tombstones its embeddings in the same transaction
+  (`delete_node` / `delete_edge`, and Cypher `DELETE` / `DETACH DELETE`,
+  including over `serve`). Vector search does not return that element
+  afterwards, and a newer embedding from another writer does not bring it
+  back while the element stays deleted. Another element's embeddings are
+  left in place. No on-disk format change: the extra lines are the existing
+  `kind: "vector"` tombstones.
 - Vector similarity over `serve` returns hits. Embeddings written with
   `SET n = …` or `CALL db.create.setNodeVectorProperty` /
   `setRelationshipVectorProperty` are stored under `vectors/` and are read

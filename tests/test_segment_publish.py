@@ -10,8 +10,10 @@ from __future__ import annotations
 import errno
 import os
 import threading
+import time
 from pathlib import Path
 
+import graph_ted_db.store.graph as graph_mod
 from graph_ted_db.store import GraphStore, init_graph
 from graph_ted_db.store.paths import segment_seq
 from graph_ted_db.store.records import NodeRecord
@@ -260,3 +262,69 @@ def test_publish_across_filesystems_installs_the_final_bytes(tmp_path: Path, mon
     assert dest.read_bytes() == payload
     assert list(dest.parent.glob("*.tmp")) == []
     assert list(stage.glob("*.tmp")) == []
+
+
+def test_exit_seal_does_not_wait_on_a_held_lock(tmp_path: Path, monkeypatch) -> None:
+    """Process exit must return while another thread holds the store lock.
+
+    The next open seals the active log, same as after SIGKILL.
+    """
+    root = tmp_path / "g"
+    init_graph(root)
+    store = _open(root, tmp_path / "d")
+    store.make_node(labels=["E"], props={"name": "Ada"})
+    monkeypatch.setattr(graph_mod, "_EXIT_LOCK_SECONDS", 0.2)
+    started = threading.Event()
+    release = threading.Event()
+
+    def hold() -> None:
+        with store._lock():
+            started.set()
+            assert release.wait(timeout=5)
+
+    thread = threading.Thread(target=hold)
+    thread.start()
+    assert started.wait(timeout=2)
+    try:
+        began = time.monotonic()
+        store._close_for_exit()
+        elapsed = time.monotonic() - began
+    finally:
+        release.set()
+        thread.join(timeout=2)
+    assert elapsed < 2
+    assert not thread.is_alive()
+    assert list((root / "nodes").glob(f"{store.writer_id}.*.jsonl")) == []
+    reopened = GraphStore.open(root, data_dir=tmp_path / "d", publish=_HOLD)
+    assert [node.props.get("name") for node in reopened.iter_nodes()] == ["Ada"]
+    assert list((root / "nodes").glob(f"{reopened.writer_id}.*.jsonl"))
+
+
+def test_exit_seal_publishes_when_the_lock_is_free(tmp_path: Path) -> None:
+    root = tmp_path / "g"
+    init_graph(root)
+    store = _open(root, tmp_path / "d")
+    store.make_node(labels=["E"], props={"name": "Ada"})
+    writer = store.writer_id
+    store._close_for_exit()
+    assert list((root / "nodes").glob(f"{writer}.*.jsonl"))
+    reopened = GraphStore.open(root, data_dir=tmp_path / "d", publish=_HOLD)
+    assert [node.props.get("name") for node in reopened.iter_nodes()] == ["Ada"]
+
+
+def test_finalizer_does_not_take_the_lock(tmp_path: Path, monkeypatch) -> None:
+    """``__del__`` after finalization must not call ``close``.
+
+    The collector runs this after other threads are frozen. ``close`` takes
+    the process lock, and a frozen holder never releases it.
+    """
+    root = tmp_path / "g"
+    init_graph(root)
+    store = _open(root, tmp_path / "d")
+    store.make_node(labels=["E"], props={"name": "Ada"})
+    monkeypatch.setattr(graph_mod, "_interpreter_is_finalizing", lambda: True)
+    calls: list[str] = []
+    store.close = lambda: calls.append("close")
+    store.__del__()
+    assert calls == []
+    assert store._stop.is_set()
