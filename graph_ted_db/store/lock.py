@@ -42,6 +42,16 @@ def wal_dir_for(graph_id: str, data_dir: Path | None = None) -> Path:
     return (data_dir or default_data_dir()) / graph_id / "wal"
 
 
+def active_dir_for(graph_id: str, data_dir: Path | None = None) -> Path:
+    """Growing record logs for this device. Never stored in the synced folder."""
+    return (data_dir or default_data_dir()) / graph_id / "active"
+
+
+def stage_dir_for(graph_id: str, data_dir: Path | None = None) -> Path:
+    """Temp files for sealing a segment. Never stored in the synced folder."""
+    return (data_dir or default_data_dir()) / graph_id / "stage"
+
+
 def _lock_fd(fd) -> None:
     if sys.platform == "win32":
         import msvcrt

@@ -94,13 +94,81 @@ class GraphPaths:
 _SUFFIXED_CONFLICT = re.compile(r"\.jsonl\.(?:[\w-]*conflict\d*|\.path[12])$", re.IGNORECASE)
 
 
-_WRITER_FILE = re.compile(r"^(?P<stem>[0-9a-f]{2}|deleted)\.(?P<writer>w[0-9a-f]{16})\.jsonl$")
+# v2 legacy: "<stem>.<writer>.jsonl" (mutable; migrated by its owner).
+# v3 sealed, per shard: "<stem>.<writer>.<seq>.jsonl" (immutable; owner folds these).
+# v4 bundle, every shard: "<writer>.<seq>.jsonl" (immutable; one file per publish).
+_SEGMENT_FILE = re.compile(
+    r"^(?P<stem>[0-9a-f]{2}|deleted)\.(?P<writer>w[0-9a-f]{16})(?:\.(?P<seq>[0-9]{6}))?\.jsonl$"
+)
+_BUNDLE_FILE = re.compile(r"^(?P<writer>w[0-9a-f]{16})\.(?P<seq>[0-9]{6})\.jsonl$")
+# Exact bundle, or that name plus a sync-client suffix. Not a per-shard segment.
+_BUNDLE_OR_CONFLICT = re.compile(r"^w[0-9a-f]{16}\.[0-9]{6}\.jsonl(?:\.|$)")
+
+
+def _segment_match(name: str) -> re.Match[str] | None:
+    return _SEGMENT_FILE.match(name)
+
+
+def _bundle_match(name: str) -> re.Match[str] | None:
+    return _BUNDLE_FILE.match(name)
 
 
 def writer_of(name: str) -> str | None:
-    """The writer id in a v2 per-writer file name, else None."""
-    match = _WRITER_FILE.match(name)
+    """The writer id in a v2, per-shard segment, or bundle name, else None."""
+    match = _segment_match(name) or _bundle_match(name)
     return match.group("writer") if match else None
+
+
+def segment_seq(name: str) -> int | None:
+    """Sequence of a sealed segment or bundle, or None if `name` is not one."""
+    match = _bundle_match(name) or _segment_match(name)
+    if match is None or match.group("seq") is None:
+        return None
+    return int(match.group("seq"))
+
+
+def segment_stem(name: str) -> str | None:
+    """Shard stem (or ``deleted``) of a v2/v3 record file, else None."""
+    match = _segment_match(name)
+    return match.group("stem") if match else None
+
+
+def is_legacy_v2_name(name: str) -> bool:
+    """A per-writer file with no sequence number. Its owner seals it on open."""
+    match = _segment_match(name)
+    return match is not None and match.group("seq") is None
+
+
+def is_sealed_segment_name(name: str) -> bool:
+    """A published segment or bundle. Its bytes must not change after the name appears."""
+    return segment_seq(name) is not None
+
+
+def is_bundle_name(name: str) -> bool:
+    """A v4 bundle: every shard this writer sealed in one publish."""
+    return _bundle_match(name) is not None
+
+
+def is_per_shard_segment_name(name: str) -> bool:
+    """A v3 segment for one shard stem. Its owner folds it into a bundle."""
+    match = _segment_match(name)
+    return match is not None and match.group("seq") is not None and match.group("stem") != "deleted"
+
+
+def segment_filename(stem: str, writer: str, seq: int) -> str:
+    """Immutable per-shard or tombstone segment name. ``seq`` is 1-based."""
+    if seq < 1 or seq > 999_999:
+        raise ValueError(f"segment sequence out of range: {seq}")
+    return f"{stem}.{writer}.{seq:06d}.jsonl"
+
+
+def bundle_filename(writer: str, seq: int) -> str:
+    """Immutable bundle name. One file covers every shard sealed in that publish."""
+    if not re.fullmatch(r"w[0-9a-f]{16}", writer):
+        raise ValueError(f"not a writer id: {writer!r}")
+    if seq < 1 or seq > 999_999:
+        raise ValueError(f"segment sequence out of range: {seq}")
+    return f"{writer}.{seq:06d}.jsonl"
 
 
 def is_record_file_name(name: str) -> bool:
@@ -139,8 +207,9 @@ def is_conflict_copy(path: Path, canonical_stem: str) -> bool:
 def shard_jsonl_files(directory: Path, canonical_stem: str) -> list[Path]:
     """Every file holding records for this stem.
 
-    The v1 canonical shard, each writer's ``<stem>.<writer>.jsonl``, and any
-    sync-client conflict copies of either.
+    The v1 canonical shard, each writer's legacy ``<stem>.<writer>.jsonl``,
+    each sealed ``<stem>.<writer>.<seq>.jsonl``, and any sync-client conflict
+    copies of those.
     """
     if not directory.is_dir():
         return []
@@ -166,7 +235,7 @@ def shard_jsonl_files(directory: Path, canonical_stem: str) -> list[Path]:
             if not (lowered.startswith(stem) or stem in lowered):
                 continue
             child = directory / name
-            match = _WRITER_FILE.match(name)
+            match = _segment_match(name)
             if match is not None:
                 if match.group("stem") == stem:
                     conflicts.append(child)
@@ -174,6 +243,27 @@ def shard_jsonl_files(directory: Path, canonical_stem: str) -> list[Path]:
             if is_conflict_copy(child, canonical_stem):
                 conflicts.append(child)
     found.extend(sorted(conflicts))
+    return found
+
+
+def bundle_jsonl_files(directory: Path) -> list[Path]:
+    """Bundle files in `directory`, plus sync-client conflict copies of them.
+
+    A bundle holds every shard sealed in one publish. It is not a shard file:
+    readers scan it once, rather than once per stem.
+    """
+    if not directory.is_dir():
+        return []
+    found: list[Path] = []
+    try:
+        names = os.listdir(directory)
+    except OSError:
+        return []
+    for name in sorted(names):
+        if not is_record_file_name(name):
+            continue
+        if _BUNDLE_OR_CONFLICT.match(name):
+            found.append(directory / name)
     return found
 
 

@@ -292,6 +292,20 @@ def _ids(store: GraphStore) -> set[str]:
     return {node.id for node in store.iter_nodes()}
 
 
+def _sealed(store: GraphStore, directory, record_id_value: str):
+    """The one bundle this writer published in `directory`.
+
+    A publish covers every shard, so the record id only checks that the
+    caller still has a record in mind. The file is `<writer>.<seq>.jsonl`.
+    """
+    del record_id_value
+    return next(directory.glob(f"{store.writer_id}.[0-9][0-9][0-9][0-9][0-9][0-9].jsonl"))
+
+
+def _sealed_deleted(store: GraphStore):
+    return next(store.paths.meta_dir.glob(f"deleted.{store.writer_id}.*.jsonl"))
+
+
 def test_torn_suffix_is_not_data(tmp_path: Path):
     root = tmp_path / "g"
     data = tmp_path / "data"
@@ -299,9 +313,10 @@ def test_torn_suffix_is_not_data(tmp_path: Path):
     store = GraphStore.open(root, data_dir=data)
     apply_txn(store, 1)
     assert _outcome(store, 1) == "present"
-    node_shard = store.paths.node_shard(record_id(1, 0))
-    edge_shard = store.paths.edge_shard(record_id(1, KEEP_EDGE_SEQ))
-    deleted = store.paths.deleted_jsonl
+    store.publish()
+    node_shard = _sealed(store, store.paths.nodes_dir, record_id(1, 0))
+    edge_shard = _sealed(store, store.paths.edges_dir, record_id(1, KEEP_EDGE_SEQ))
+    deleted = _sealed_deleted(store)
     assert node_shard.is_file()
     assert edge_shard.is_file()
     assert deleted.is_file()
@@ -318,7 +333,10 @@ def test_torn_suffix_is_not_data(tmp_path: Path):
     assert _outcome(reopened, 1) == "present"
     assert record_id(99, 0) not in _ids(reopened)
     assert _outcome(reopened, 99) == "absent"
-    assert all(not line or line.endswith("}") for line in deleted.read_text().splitlines())
+    # Sealed segments are not truncated. The phantom stays on disk as an
+    # unterminated tail and is not a record.
+    assert record_id(99, 0) in deleted.read_text(encoding="utf-8")
+    assert not deleted.read_bytes().endswith(b"\n")
 
 
 def test_truncated_final_line_is_skipped(tmp_path: Path):
@@ -330,18 +348,26 @@ def test_truncated_final_line_is_skipped(tmp_path: Path):
     apply_txn(store, 3)
     keep = record_id(2, 1)
     chopped_id = record_id(3, 4)
-    node_shard = store.paths.node_shard(chopped_id)
+    store.publish()
+    node_shard = _sealed(store, store.paths.nodes_dir, chopped_id)
     original = node_shard.read_bytes()
     assert original.endswith(b"\n")
-    assert original.count(b"\n") >= 1
-    node_shard.write_bytes(original[:-12])
-    deleted = store.paths.deleted_jsonl
+    assert original.count(b"\n") >= 2
+    # One bundle holds every shard. Cut the target line itself, not the tail
+    # of some other shard that now shares the file.
+    cut = original.find(chopped_id.encode("ascii"))
+    assert cut > 0
+    node_shard.write_bytes(original[: cut + 8])
+    deleted = _sealed_deleted(store)
     deleted_bytes = deleted.read_bytes()
     assert deleted_bytes.endswith(b"\n")
     deleted.write_bytes(deleted_bytes[:-8])
-    edge_shard = store.paths.edge_shard(record_id(3, KEEP_EDGE_SEQ))
+    edge_id = record_id(3, KEEP_EDGE_SEQ)
+    edge_shard = _sealed(store, store.paths.edges_dir, edge_id)
     edge_bytes = edge_shard.read_bytes()
-    edge_shard.write_bytes(edge_bytes[:-6])
+    edge_cut = edge_bytes.find(edge_id.encode("ascii"))
+    assert edge_cut > 0
+    edge_shard.write_bytes(edge_bytes[: edge_cut + 8])
 
     # Another device opening the same folder must not modify these files: a
     # missing newline there may be a sync still in flight. It skips and reports.
@@ -354,14 +380,12 @@ def test_truncated_final_line_is_skipped(tmp_path: Path):
     assert set(other.doctor().foreign_torn) >= {str(node_shard)}
     assert {p: p.read_bytes() for p in before} == before
 
-    # The writing device owns them, so it truncates the torn tails on open.
+    # Sealed segments are immutable. The owner skips the torn tail and does not
+    # rewrite the file; a sync client may still be delivering those bytes.
     reopened = GraphStore.open(root, data_dir=data)
     assert keep in _ids(reopened)
     assert chopped_id not in _ids(reopened)
     assert record_id(3, KEEP_EDGE_SEQ) not in {edge.id for edge in reopened.iter_edges()}
-    # The torn tail is not a record, and a different transaction is intact.
     assert _outcome(reopened, 2) == "present"
-    text = node_shard.read_text(encoding="utf-8")
-    assert "phantom" not in text
-    assert not text or text.endswith("\n")
-    assert deleted.read_bytes().endswith(b"\n") or deleted.read_bytes() == b""
+    assert node_shard.read_bytes() == original[: cut + 8]
+    assert str(node_shard) in reopened.doctor().sealed_torn

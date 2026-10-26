@@ -19,12 +19,27 @@ Set environment variables, or copy `sync_test.local.env.example` to `sync_test.l
 | `GTDB_SYNC_HOLD_LOCK` | `1` = hold the writer's graph-ted-db lock while bisync runs on that device. |
 | `GTDB_SYNC_PARALLEL` | `1` = the two writers sync from separate threads, so their bisync runs can overlap. |
 
-Results and rclone logs can contain the remote spec. Keep them out of the repository (`sync-test-results/` is ignored) and run `python scripts/pii_scan.py` before committing anything derived from them.
+Results and rclone logs can contain the remote spec. The harness scrubs OneDrive and Graph upload URLs, and query parameters such as `access_token`, on each line before that line is written to a log or the results JSON. A run killed mid-sync does not leave the raw line on disk. Keep the results directory out of the repository (`sync-test-results/` is ignored) and run `python scripts/pii_scan.py` before committing anything derived from them.
+
+Each bisync invocation writes its own log, `results/<run-id>-<n>-<phase>.log` (`sync`, `resync`, `force`, `overwrite`, `background`, `auto-resync`). A recovery run does not overwrite the log of the run that failed. Error lines, including `size changed from … to …`, are kept in full.
+
+If bisync exits 7 and its workdir contains a `.lst-err` file, the harness runs one `--resync` so later scenarios are not stuck, and records both the lockout and the recovery as failures. A recovery that exits 0 does not turn the lockout into a success.
+
+Writers seal one bundle per directory before a normal exit (`store.close()`). The default publish rule can also seal during a run (1 MiB for the directory, 2 seconds, or 0.5 seconds idle). A check that copies only the graph folder sees sealed bundles, not the local active log. Scenario s6a syncs whatever is already sealed, then reopens the killed writer (which publishes the rest) and syncs again.
 
 ## Run
 
+On one machine, with a local directory as the remote:
+
 ```
 python scripts/sync_test/sync_harness.py list
+GTDB_SYNC_REMOTE=/tmp/gtdb-remote GTDB_SYNC_FOLDER=graph-ted-sync-test \
+  python scripts/sync_test/sync_harness.py run s2 s4
+```
+
+On two machines that share a real rclone remote, run the same command on each machine with the same `GTDB_SYNC_REMOTE` and `GTDB_SYNC_FOLDER` and a distinct `GTDB_SYNC_WORK`. Do not point `GTDB_SYNC_REMOTE` at the root of the account. The remote folder should be empty of anything except this test. One machine can run the writers; the other only needs to sync if you are reproducing a desktop sync client beside rclone. The failure this layout is meant to remove is bisync reporting `can't copy - source file is being updated (size changed from A to B)` on a record file that is still growing, and then refusing every later sync until `--resync`. A publish adds one bundle per directory, so a long run does not upload one tiny file per shard.
+
+```
 python scripts/sync_test/sync_harness.py run            # all scenarios
 python scripts/sync_test/sync_harness.py run s2 s5      # some
 ```

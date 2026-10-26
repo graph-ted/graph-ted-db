@@ -9,6 +9,29 @@ version may include breaking changes; they are called out under **Changed**.
 ### Added
 
 - `py.typed` marker (PEP 561): type checkers use graph-ted-db's inline types.
+- On-disk format version 4 (`docs/format.md`): record bytes grow in one local
+  active log per directory and are published as one immutable bundle per
+  publish (`<writer>.<seq>.jsonl`), covering every shard the batch touched.
+  A synced folder no longer contains a record file that is still being
+  appended, and the file count stays bounded (default at most 4 bundles per
+  writer per directory) instead of growing with the shard fanout.
+  `PublishPolicy` (and `GRAPH_TED_DB_PUBLISH_BYTES`,
+  `GRAPH_TED_DB_PUBLISH_INTERVAL`, `GRAPH_TED_DB_PUBLISH_IDLE`,
+  `GRAPH_TED_DB_COMPACT_AFTER`) sets the seal rule. `GraphStore.publish`
+  seals immediately. Owned v2 files and v3 per-shard segments are folded into
+  a bundle on open; readers union a folder that is only partly migrated.
+  `doctor` reports `legacy_v2_files`, `migrated`, and `sealed_torn`.
+
+### Changed
+
+- `compact()` republishes this writer's own bundles. Another writer's files
+  are not a reason to refuse; conflict copies still are. Automatic compaction
+  runs after 4 sealed files in a directory (previously 16 files per shard).
+- The file-sync harness treats a bisync critical lockout (exit 7 with a
+  `.lst-err` file) as a failure, runs one `--resync`, and keeps a separate
+  log per phase. Error lines are not truncated. OneDrive upload URLs and
+  query tokens are scrubbed as rclone output is written, so a killed run does
+  not leave an access token in the log.
 
 ## [0.1.1] - 2026-10-10
 

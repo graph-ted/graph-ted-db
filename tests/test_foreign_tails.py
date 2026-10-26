@@ -29,12 +29,20 @@ def _names(store: GraphStore) -> set[str]:
     return {n.props["name"] for n in store.iter_nodes()}
 
 
+def _sealed(store: GraphStore, record_id: str):
+    del record_id
+    store.publish()
+    return next(
+        store.paths.nodes_dir.glob(f"{store.writer_id}.[0-9][0-9][0-9][0-9][0-9][0-9].jsonl")
+    )
+
+
 def test_other_device_never_truncates_unterminated_tail(tmp_path: Path) -> None:
     root = tmp_path / "g"
     init_graph(root)
     dev_a = GraphStore.open(root, data_dir=tmp_path / "a")
     _node(dev_a, A, "alice")
-    shard = dev_a.paths.node_shard(A)
+    shard = _sealed(dev_a, A)
     # A record still arriving from sync: complete JSON, no trailing newline yet.
     line = _rec(B, "bob").to_jsonl()
     with shard.open("ab") as handle:
@@ -61,17 +69,17 @@ def test_append_onto_foreign_tail_keeps_its_bytes(tmp_path: Path) -> None:
     init_graph(root)
     dev_a = GraphStore.open(root, data_dir=tmp_path / "a")
     _node(dev_a, A, "alice")
-    shard = dev_a.paths.node_shard(A)
+    shard = _sealed(dev_a, A)
     with shard.open("ab") as handle:
         handle.write(b'{"id":"frag')
     before = shard.read_bytes()
 
     dev_b = GraphStore.open(root, data_dir=tmp_path / "b")
     _node(dev_b, A, "alice2")
-    # Per-writer layout: B never appends to A's file, it writes its own.
+    # B never appends to A's sealed segment. Its own bytes are a different file.
     assert shard.read_bytes() == before
-    own = dev_b.paths.node_shard(A)
-    assert own != shard and own.name.endswith(f".{dev_b.writer_id}.jsonl")
+    own = _sealed(dev_b, A)
+    assert own != shard and dev_b.writer_id in own.name
     assert _names(GraphStore.open(root, data_dir=tmp_path / "c")) == {"alice2"}
 
 
@@ -80,23 +88,39 @@ def test_own_torn_tail_is_repaired(tmp_path: Path) -> None:
     init_graph(root)
     dev_a = GraphStore.open(root, data_dir=tmp_path / "a")
     _node(dev_a, A, "alice")
-    shard = dev_a.paths.node_shard(A)
-    with shard.open("ab") as handle:
+    # The mutable copy is the local active log. A torn tail there is repaired.
+    active = dev_a._active_log(dev_a.paths.nodes_dir)
+    with active.open("ab") as handle:
         handle.write(b'{"id":"torn')
     report = GraphStore.open(root, data_dir=tmp_path / "a").doctor()
-    assert shard.read_bytes().endswith(b"\n")
+    assert b'{"id":"torn' not in active.read_bytes()
     assert report.foreign_torn == []
+    assert _names(GraphStore.open(root, data_dir=tmp_path / "a")) == {"alice"}
+
+    # A sealed segment is never rewritten, even by the writer who published it.
+    sealed = _sealed(dev_a, A)
+    torn = sealed.read_bytes() + b'{"id":"sealed-torn'
+    sealed.write_bytes(torn)
+    again = GraphStore.open(root, data_dir=tmp_path / "a")
+    assert sealed.read_bytes() == torn
+    assert str(sealed) in again.doctor().sealed_torn
 
 
-def test_compact_refused_on_shared_store(tmp_path: Path) -> None:
+def test_compact_rewrites_only_this_writers_segments(tmp_path: Path) -> None:
     root = tmp_path / "g"
     init_graph(root)
     dev_a = GraphStore.open(root, data_dir=tmp_path / "a")
     _node(dev_a, A, "alice")
-    dev_a.compact()  # single device: allowed
+    dev_a.compact()
     dev_b = GraphStore.open(root, data_dir=tmp_path / "b")
-    with pytest.raises(SharedStoreError):
-        dev_b.compact()
+    dev_b.compact()  # nothing of B's; other writers' files are not a reason to refuse
     _node(dev_b, B, "bob")
+    bob = _sealed(dev_b, B)
+    bob_bytes = bob.read_bytes()
+    GraphStore.open(root, data_dir=tmp_path / "a").compact()
+    assert bob.read_bytes() == bob_bytes
+    conflict = bob.with_name(bob.name + ".conflict1")
+    conflict.write_bytes(bob_bytes)
     with pytest.raises(SharedStoreError):
         GraphStore.open(root, data_dir=tmp_path / "a").compact()
+    assert bob.read_bytes() == bob_bytes

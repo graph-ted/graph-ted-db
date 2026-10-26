@@ -18,6 +18,7 @@ from graph_ted_db.store.records import (
     Tombstone,
     VectorRecord,
 )
+from graph_ted_db.store.segments import PublishPolicy
 
 __all__ = [
     "FORMAT_NAME",
@@ -30,6 +31,7 @@ __all__ = [
     "GraphPaths",
     "GraphStore",
     "NodeRecord",
+    "PublishPolicy",
     "SharedStoreError",
     "Tombstone",
     "VectorRecord",

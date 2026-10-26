@@ -2,7 +2,20 @@ from pathlib import Path
 
 from graph_ted_db.store import GraphStore, init_graph
 from graph_ted_db.store.format import format_timestamp, shard_id
+from graph_ted_db.store.paths import segment_seq
 from graph_ted_db.store.records import EdgeRecord, NodeRecord, VectorRecord
+
+
+def _own_node_text(g: GraphStore, record_id: str) -> str:
+    """Bytes this writer has for nodes, sealed or still local."""
+    del record_id
+    parts: list[str] = []
+    active = g._active_log(g.paths.nodes_dir)
+    if active.is_file():
+        parts.append(active.read_text(encoding="utf-8"))
+    for path in sorted(g.paths.nodes_dir.glob(f"{g.writer_id}.*.jsonl")):
+        parts.append(path.read_text(encoding="utf-8"))
+    return "".join(parts)
 
 
 def _open(tmp_path: Path, name: str = "g") -> GraphStore:
@@ -20,9 +33,17 @@ def test_put_get_list_node(tmp_path: Path):
     assert got.labels == ("Entity",)
     listed = list(g.iter_nodes())
     assert [n.id for n in listed] == [rec.id]
-    shard = g.paths.node_shard(rec.id)
-    assert shard.is_file()
-    assert shard.parent == g.paths.nodes_dir
+    # The synced name does not exist until the active log is sealed, and then
+    # it is a numbered segment rather than a file that later writes append to.
+    assert not g.paths.node_shard(rec.id).exists()
+    g.publish()
+    sealed = list(g.paths.nodes_dir.glob(f"{g.writer_id}.*.jsonl"))
+    assert len(sealed) == 1
+    assert sealed[0].parent == g.paths.nodes_dir
+    assert segment_seq(sealed[0].name) == 1
+    before = sealed[0].read_bytes()
+    g.make_node(labels=["Entity"], props={"name": "Bob"}, updated_by="test")
+    assert sealed[0].read_bytes() == before
 
 
 def test_lock_file_is_outside_graph_folder(tmp_path: Path):
@@ -57,11 +78,11 @@ def test_later_put_wins_same_id(tmp_path: Path):
     got = g.get_node(rec_id)
     assert got is not None
     assert got.props["name"] == "new"
-    # Shard still has both lines until compact.
-    text = g.paths.node_shard(rec_id).read_text(encoding="utf-8")
+    # Both versions are kept until compact, in the local log or a sealed segment.
+    text = _own_node_text(g, rec_id)
     assert "old" in text and "new" in text
     g.compact()
-    text = g.paths.node_shard(rec_id).read_text(encoding="utf-8")
+    text = _own_node_text(g, rec_id)
     assert "old" not in text
     assert "new" in text
     assert g.get_node(rec_id).props["name"] == "new"
@@ -72,8 +93,9 @@ def test_conflict_copy_union_merge(tmp_path: Path):
     alice_id = "00000000-0000-4000-8000-00000000000a"
     bob_id = "00000000-0000-4000-8000-00000000000b"
     g.make_node(record_id=alice_id, props={"name": "Alice"})
+    g.publish()
     # Simulate OneDrive forking the shard while another user wrote Bob.
-    canonical = g.paths.node_shard(alice_id)
+    canonical = next(g.paths.nodes_dir.glob(f"{g.writer_id}.*.jsonl"))
     conflict = g.paths.nodes_dir / "00-DESKTOP-conflict-2026-08-25.jsonl"
     bob = NodeRecord(
         id=bob_id,
@@ -205,8 +227,8 @@ def test_open_repairs_torn_shard_and_next_put_survives(tmp_path: Path):
         record_id="00000000-0000-4000-8000-000000000001",
         props={"name": "ok"},
     )
-    shard = g.paths.node_shard(rec.id)
-    shard.write_bytes(shard.read_bytes() + b'{"id":"torn-incomplete"')
+    active = g._active_log(g.paths.nodes_dir)
+    active.write_bytes(active.read_bytes() + b'{"id":"torn-incomplete"')
     g2 = GraphStore.open(g.root, data_dir=tmp_path / "locks")
     assert g2.get_node(rec.id) is not None
     other = g2.make_node(
@@ -216,9 +238,9 @@ def test_open_repairs_torn_shard_and_next_put_survives(tmp_path: Path):
     names = {n.props["name"] for n in g2.iter_nodes()}
     assert names == {"ok", "also"}
     assert other.id.endswith("0002")
-    text = shard.read_text(encoding="utf-8")
-    assert text.endswith("\n")
+    text = _own_node_text(g2, rec.id) + _own_node_text(g2, other.id)
     assert "torn-incomplete" not in text
+    assert text.endswith("\n")
 
 
 def test_open_removes_leftover_compact_tmp(tmp_path: Path):
@@ -244,9 +266,9 @@ def test_corrupt_labels_json_does_not_block_open(tmp_path: Path):
 def test_skips_invalid_jsonl_line(tmp_path: Path):
     g = _open(tmp_path)
     rec = g.make_node(props={"name": "ok"})
-    shard = g.paths.node_shard(rec.id)
-    shard.write_text(
-        shard.read_text(encoding="utf-8") + "this is not json\n",
+    active = g._active_log(g.paths.nodes_dir)
+    active.write_text(
+        active.read_text(encoding="utf-8") + "this is not json\n",
         encoding="utf-8",
     )
     assert g.get_node(rec.id) is not None

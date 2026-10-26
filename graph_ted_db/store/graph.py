@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import atexit
 import json
 import logging
 import os
@@ -9,6 +10,7 @@ import signal
 import stat as stat_mod
 import threading
 import time
+import weakref
 from collections import defaultdict
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
@@ -22,7 +24,7 @@ from graph_ted_db.store.aliases import _GraphStoreAliases
 from graph_ted_db.store.format import (
     FORMAT_NAME,
     FORMAT_VERSION,
-    LAYOUT_PER_WRITER,
+    LAYOUT_BUNDLES,
     format_timestamp,
     is_vector_property_name,
     is_writer_id,
@@ -36,15 +38,18 @@ from graph_ted_db.store.jsonl import (
     crash_if,
     fsync_directory,
     has_unterminated_tail,
+    in_append_batch,
     iter_json_objects,
     repair_torn_jsonl,
     replace_json_file,
     replace_jsonl,
 )
 from graph_ted_db.store.lock import (
+    active_dir_for,
     exclusive_lock,
     index_dir_for,
     lock_path_for,
+    stage_dir_for,
     wal_dir_for,
     writer_path_for,
 )
@@ -58,8 +63,14 @@ from graph_ted_db.store.meta import (
 )
 from graph_ted_db.store.paths import (
     GraphPaths,
+    bundle_jsonl_files,
     discover_shard_stems,
+    is_bundle_name,
+    is_legacy_v2_name,
+    is_per_shard_segment_name,
     is_record_file_name,
+    is_sealed_segment_name,
+    segment_stem,
     shard_jsonl_files,
     writer_of,
 )
@@ -71,8 +82,33 @@ from graph_ted_db.store.records import (
     Tombstone,
     VectorRecord,
 )
+from graph_ted_db.store.segments import (
+    PublishPolicy,
+    bundle_path,
+    due,
+    next_bundle_seq,
+    next_seq,
+    publish_immutable,
+    segment_path,
+    truncate_file,
+)
 
 log = logging.getLogger("graph_ted_db")
+
+# Stores still referenced at process exit. A killed process does not run this;
+# the next open seals whatever the active log already fsynced.
+_LIVE: weakref.WeakSet[GraphStore] = weakref.WeakSet()
+
+
+def _publish_on_exit() -> None:
+    for store in list(_LIVE):
+        try:
+            store.close()
+        except Exception:
+            log.debug("graph-ted-db: exit publish failed", exc_info=True)
+
+
+atexit.register(_publish_on_exit)
 
 # Above this many nodes plus edges, open warns (docs/overview.md, Graph size).
 LARGE_GRAPH_RECORDS = 250_000
@@ -118,6 +154,9 @@ class DoctorReport:
     writers: list[str] = field(default_factory=list)
     unregistered_writers: list[str] = field(default_factory=list)
     legacy_shared_files: list[str] = field(default_factory=list)
+    legacy_v2_files: list[str] = field(default_factory=list)
+    migrated: list[str] = field(default_factory=list)
+    sealed_torn: list[str] = field(default_factory=list)
     meta_problems: list[str] = field(default_factory=list)
     fix: bool = False
 
@@ -137,6 +176,9 @@ class DoctorReport:
             f"writer files without a registration (still syncing?): "
             f"{len(self.unregistered_writers)}",
             f"v1 shared files (read only): {len(self.legacy_shared_files)}",
+            f"v2 files not sealed yet: {len(self.legacy_v2_files)}",
+            f"v2 files sealed into segments: {len(self.migrated)}",
+            f"sealed segments with a torn tail (not modified): {len(self.sealed_torn)}",
             f"app meta files with problems (not modified): {len(self.meta_problems)}",
         ]
         for item in self.torn_repaired:
@@ -154,6 +196,12 @@ class DoctorReport:
             lines.append(f"  skipped {item}")
         for item in self.conflict_copies:
             lines.append(f"  conflict {item}")
+        for item in self.legacy_v2_files:
+            lines.append(f"  legacy v2 (still mutable until its writer opens) {item}")
+        for item in self.migrated:
+            lines.append(f"  sealed {item}")
+        for item in self.sealed_torn:
+            lines.append(f"  sealed torn (not modified) {item}")
         for item in self.meta_problems:
             lines.append(f"  meta {item}")
         if self.dangling_edges_found and not self.fix:
@@ -180,14 +228,31 @@ class GraphStore(_GraphStoreAliases):
     ``remove_edge`` are optional NetworkX-like aliases for those operations.
     """
 
-    def __init__(self, root: str | Path, *, data_dir: Path | None = None) -> None:
+    def __init__(
+        self,
+        root: str | Path,
+        *,
+        data_dir: Path | None = None,
+        publish: PublishPolicy | None = None,
+    ) -> None:
         self.root = Path(root).expanduser().resolve()
         self.meta: GraphMeta = load_graph_meta(self.root)
         self.data_dir = data_dir
+        self._policy = publish if publish is not None else PublishPolicy.from_env()
         # Under the device LOCK, so concurrent processes agree on one id.
         with exclusive_lock(lock_path_for(self.meta.id, data_dir)):
             self.writer_id = load_or_create_writer_id(writer_path_for(self.meta.id, data_dir))
         self.paths = GraphPaths(self.root, writer=self.writer_id)
+        self._active_root = active_dir_for(self.meta.id, data_dir)
+        self._stage_dir = stage_dir_for(self.meta.id, data_dir)
+        self._active_since: dict[str, float] = {}
+        self._active_last: dict[str, float] = {}
+        self._stop = threading.Event()
+        self._publisher: threading.Thread | None = None
+        self._sealed_torn: list[str] = []
+        self._legacy_v2: list[str] = []
+        self._migrated: list[str] = []
+        _LIVE.add(self)
         # Hybrid logical clock: the greatest (updated_at, counter) seen in the
         # store or written here. New writes always sort after it, so an edit
         # made after seeing a record wins even if this device's clock is behind.
@@ -217,26 +282,40 @@ class GraphStore(_GraphStoreAliases):
         self._fp_pending: list[Path] | None = None
 
     @classmethod
-    def open(cls, root: str | Path, *, data_dir: Path | None = None) -> GraphStore:
+    def open(
+        cls,
+        root: str | Path,
+        *,
+        data_dir: Path | None = None,
+        publish: PublishPolicy | None = None,
+    ) -> GraphStore:
         """Open an existing graph folder.
 
-        Repairs torn lines, replays an interrupted transaction, and builds the
-        local index before returning.
+        Repairs this device's local active log, seals any legacy files this
+        writer still owns, replays an interrupted transaction, publishes active
+        bytes a crash left behind, and builds the local index before returning.
 
         Args:
             root: The graph folder (created by `init_graph`).
-            data_dir: Where to keep the process lock and local index. Defaults
-                to `GRAPH_TED_DB_DATA` or the platform app-data directory,
-                never inside the graph folder.
+            data_dir: Where to keep the process lock, the local index, and the
+                active record log. Defaults to `GRAPH_TED_DB_DATA` or the
+                platform app-data directory, never inside the graph folder.
+            publish: When to seal the active log into immutable segment files.
+                Defaults to `PublishPolicy.from_env()`.
 
         Returns:
             An open store.
         """
         started = time.perf_counter()
-        store = cls(root, data_dir=data_dir)
+        store = cls(root, data_dir=data_dir, publish=publish)
         with store._lock():
             store._recover_files()
+            store._recover_active()
+            store._migrate_owned_legacy()
             store._replay_wal_unlocked()
+            # Bytes left in the active log were already committed (or just
+            # replayed). Seal them so a crash does not hide them from sync.
+            store._publish_due_unlocked(force=True)
             store._rebuild_index_unlocked()
             n_records = 0
             if store._index is not None:
@@ -255,6 +334,7 @@ class GraphStore(_GraphStoreAliases):
                     store.meta.name,
                     problems,
                 )
+        store._start_publisher()
         return store
 
     def problems(self) -> dict[str, int]:
@@ -272,6 +352,8 @@ class GraphStore(_GraphStoreAliases):
             "cloud_only_files": len(self._cloud_only),
             "empty_record_files": len(self._empty_files),
             "meta_problems": len(self._meta_problems()),
+            "legacy_v2_files": len(self._legacy_v2_paths()),
+            "sealed_torn": len(self._sealed_torn),
         }
 
     @contextmanager
@@ -314,7 +396,6 @@ class GraphStore(_GraphStoreAliases):
         self._remember_labels(node_labels=record.labels)
         if self._index is not None:
             self._index.upsert_node(record)
-        self._touch_index(path)
 
     def get_node(self, record_id: str) -> NodeRecord | None:
         """Return the live node with this id, or None if it is missing or deleted."""
@@ -364,7 +445,6 @@ class GraphStore(_GraphStoreAliases):
         self._disk_delete_tomb(tomb)
         if self._index is not None:
             self._index.remove_node(record_id)
-        self._touch_index(self.paths.deleted_jsonl)
         return tomb
 
     def iter_nodes(self) -> Iterator[NodeRecord]:
@@ -404,7 +484,6 @@ class GraphStore(_GraphStoreAliases):
         self._remember_labels(relationship_types=(record.type,))
         if self._index is not None:
             self._index.upsert_edge(record)
-        self._touch_index(path)
 
     def get_edge(self, record_id: str) -> EdgeRecord | None:
         """Return the live edge with this id, or None if it is missing, deleted, or dangling."""
@@ -447,7 +526,6 @@ class GraphStore(_GraphStoreAliases):
         self._disk_delete_tomb(tomb)
         if self._index is not None:
             self._index.remove_edge(record_id)
-        self._touch_index(self.paths.deleted_jsonl)
         return tomb
 
     def iter_edges(self) -> Iterator[EdgeRecord]:
@@ -475,7 +553,6 @@ class GraphStore(_GraphStoreAliases):
         path = self.paths.vector_shard(record.property, record.id)
         self._append(path, record.to_jsonl())
         self._remember_labels(vector_properties=(record.property,))
-        self._touch_index(path)
 
     def get_vector(self, property_name: str, record_id: str) -> VectorRecord | None:
         """Return the live embedding `property_name` for a node or edge id, or None.
@@ -512,7 +589,6 @@ class GraphStore(_GraphStoreAliases):
         with self._lock():
             tomb = self._stamp(replace(tomb, updated_at=self._clock_now()))
             self._append(self.paths.deleted_jsonl, tomb.to_jsonl())
-            self._touch_index(self.paths.deleted_jsonl)
         return tomb
 
     # --- helpers for callers ---
@@ -694,6 +770,7 @@ class GraphStore(_GraphStoreAliases):
         finally:
             self._label_acc = None
             self._fp_pending = None
+        self._publish_due_unlocked(force=False)
 
     def _apply_ops_unlocked(self, ops: list[tuple[str, Any]]) -> None:
         for kind, payload in ops:
@@ -758,26 +835,52 @@ class GraphStore(_GraphStoreAliases):
 
     def _disk_delete_tomb(self, tomb: Tombstone) -> None:
         self._append(self.paths.deleted_jsonl, tomb.to_jsonl())
-        self._touch_index(self.paths.deleted_jsonl)
 
-    def compact(self) -> None:
-        """Rewrite canonical shards to winning records. Leaves conflict copies.
+    def publish(self) -> int:
+        """Seal every non-empty active log into the synced folder now.
 
-        Refused on a shared store (any record file this device did not write,
-        or any conflict copy): rewriting a file another device also appends to
-        would drop its records once the sync client picks a version.
-
-        Raises:
-            SharedStoreError: The store is shared.
+        Returns how many directories were sealed. Each one becomes a single
+        new file. Safe to call more than once. Other devices still wait for
+        their sync client to copy the new files.
         """
         with self._lock():
-            foreign = self._foreign_record_files()
-            if foreign or self._conflict_copy_paths():
+            return self._publish_due_unlocked(force=True)
+
+    def close(self) -> None:
+        """Seal active logs and stop the background publisher."""
+        self._stop.set()
+        try:
+            self.publish()
+        except Exception:
+            log.debug("graph-ted-db: close could not publish", exc_info=True)
+
+    def __del__(self) -> None:
+        stop = getattr(self, "_stop", None)
+        if stop is None or stop.is_set():
+            return
+        try:
+            self.close()
+        except Exception:
+            return
+
+    def compact(self) -> None:
+        """Merge this writer's sealed segments down to winning records.
+
+        Only files whose name carries this writer id are rewritten, and only
+        by publishing a new segment and deleting the old ones. Another
+        writer's files are not modified. Refused while a sync client has left
+        conflict copies: deleting a forked file can drop records.
+
+        Raises:
+            SharedStoreError: Conflict copies are present.
+        """
+        with self._lock():
+            if self._conflict_copy_paths():
                 raise SharedStoreError(
-                    "compact is disabled on a shared store (files written by another device"
-                    " or conflict copies are present); cleanup for shared stores is not"
-                    " available yet"
+                    "compact is disabled while sync conflict copies are present;"
+                    " leave them until the sync client is idle"
                 )
+            self._publish_due_unlocked(force=True)
             self._compact_nodes()
             self._compact_edges()
             self._compact_vectors()
@@ -796,7 +899,10 @@ class GraphStore(_GraphStoreAliases):
         report = DoctorReport(fix=fix)
         with self._lock():
             report.torn_repaired, report.tmp_removed = self._recover_files()
+            report.torn_repaired.extend(self._recover_active())
+            self._migrate_owned_legacy()
             report.foreign_torn = list(self._foreign_torn)
+            report.sealed_torn = list(self._sealed_torn)
             report.cloud_only = list(self._cloud_only)
             report.empty_files = list(self._empty_files)
             dangling = self._dangling_edges_unlocked()
@@ -809,6 +915,11 @@ class GraphStore(_GraphStoreAliases):
                 for edge in dangling:
                     self._delete_edge_unlocked(edge.id, updated_by="doctor", now=now)
                 report.dangling_edges_tombstoned = list(report.dangling_edges_found)
+                # Tombstones have to be in the synced folder before doctor
+                # returns. They are permanent and every other device must see
+                # them; leaving them in the local active log would hide the fix.
+                self._publish_due_unlocked(force=True)
+            report.migrated = list(self._migrated)
             self._rebuild_labels_unlocked()
             self._rebuild_index_unlocked()
             report.labels_rebuilt = True
@@ -827,6 +938,7 @@ class GraphStore(_GraphStoreAliases):
                     legacy.append(str(path))
             report.unregistered_writers = sorted(seen - set(report.writers))
             report.legacy_shared_files = legacy
+            report.legacy_v2_files = [str(p) for p in self._legacy_v2_paths()]
             report.meta_problems = self._meta_problems()
         return report
 
@@ -923,30 +1035,44 @@ class GraphStore(_GraphStoreAliases):
         replace_jsonl(out, lines)
         return counts
 
+    def _vector_property_names(self) -> list[str]:
+        """Property names with a synced directory or a local active log."""
+        names: set[str] = set()
+        for root in (self.paths.vectors_dir, self._active_root / "vectors"):
+            if not root.is_dir():
+                continue
+            for child in root.iterdir():
+                if child.is_dir() and is_vector_property_name(child.name):
+                    names.add(child.name)
+        return sorted(names)
+
     def _lww_vectors_unlocked(self) -> list[VectorRecord]:
         out: list[VectorRecord] = []
-        if not self.paths.vectors_dir.is_dir():
+        names = self._vector_property_names()
+        if not names:
             return out
         live = {n.id for n in self._lww_nodes_unlocked()} | {
             e.id for e in self._graph_edges_unlocked()
         }
-        for prop_dir in sorted(self.paths.vectors_dir.iterdir()):
-            if not prop_dir.is_dir() or not is_vector_property_name(prop_dir.name):
-                continue
+        for name in names:
+            prop_dir = self.paths.vectors_dir / name
             tombs: dict[str, list[Tombstone]] = defaultdict(list)
             for tomb in self._iter_tombstones():
                 if tomb.kind == "vector" and tomb.property == prop_dir.name:
                     tombs[tomb.id].append(tomb)
-            for stem in discover_shard_stems(prop_dir):
-                grouped: dict[str, list[VectorRecord]] = defaultdict(list)
-                for path in shard_jsonl_files(prop_dir, stem):
+            grouped: dict[str, list[VectorRecord]] = defaultdict(list)
+            for stem in self._stems(prop_dir):
+                for path in self._stem_files(prop_dir, stem):
                     for rec in self._parse_vectors(path, prop_dir.name):
                         grouped[rec.id].append(rec)
-                for record_id, lives in grouped.items():
-                    picked = resolve(lives, tombs.get(record_id, []))
-                    if picked is not None and not picked.is_tombstone and record_id in live:
-                        assert isinstance(picked.payload, VectorRecord)
-                        out.append(picked.payload)
+            for path in self._shared_sources(prop_dir):
+                for rec in self._parse_vectors(path, prop_dir.name):
+                    grouped[rec.id].append(rec)
+            for record_id, lives in grouped.items():
+                picked = resolve(lives, tombs.get(record_id, []))
+                if picked is not None and not picked.is_tombstone and record_id in live:
+                    assert isinstance(picked.payload, VectorRecord)
+                    out.append(picked.payload)
         return out
 
     def refresh_index(self) -> None:
@@ -967,23 +1093,29 @@ class GraphStore(_GraphStoreAliases):
 
     def _touch_index(self, path: Path | None = None) -> None:
         # A multi-record transaction notes the fingerprint once, after fsync.
+        if path is not None and self._is_vector_path(path):
+            return
         if self._label_acc is not None:
             if path is not None and self._fp_pending is not None:
-                try:
-                    path.relative_to(self.paths.vectors_dir)
-                except ValueError:
-                    self._fp_pending.append(path)
+                self._fp_pending.append(path)
             return
-        if path is not None:
-            try:
-                path.relative_to(self.paths.vectors_dir)
-                return
-            except ValueError:
-                pass
-            if self._index_fp is not None:
-                self._note_one_file(path)
-                return
+        if path is not None and self._index_fp is not None:
+            self._note_one_file(path)
+            return
         self._note_index_current()
+
+    def _is_vector_path(self, path: Path) -> bool:
+        resolved = path.resolve()
+        try:
+            resolved.relative_to(self.paths.vectors_dir.resolve())
+            return True
+        except ValueError:
+            pass
+        try:
+            rel = resolved.relative_to(self._active_root.resolve())
+        except ValueError:
+            return False
+        return bool(rel.parts) and rel.parts[0] == "vectors"
 
     def _note_one_file(self, path: Path) -> None:
         assert self._index_fp is not None
@@ -992,8 +1124,7 @@ class GraphStore(_GraphStoreAliases):
         except OSError:
             self._note_index_current()
             return
-        # Same key shape as _shard_fingerprint ("nodes/00.jsonl"), also on Windows.
-        rel = path.relative_to(self.root).as_posix()
+        rel = self._fp_key(path)
         kept = [item for item in self._index_fp if item[0] != rel]
         kept.append((rel, stat.st_mtime_ns, stat.st_size))
         self._index_fp = tuple(sorted(kept))
@@ -1038,7 +1169,31 @@ class GraphStore(_GraphStoreAliases):
                     except OSError:
                         continue
                     items.append((f"{prefix}/{name}", stat.st_mtime_ns, stat.st_size))
+        active = self._active_root
+        if active.is_dir():
+            for path in active.rglob("*.jsonl"):
+                if not path.is_file():
+                    continue
+                try:
+                    if self._is_vector_path(path):
+                        continue
+                    stat = path.stat()
+                except OSError:
+                    continue
+                items.append((self._fp_key(path), stat.st_mtime_ns, stat.st_size))
         return tuple(sorted(items))
+
+    def _fp_key(self, path: Path) -> str:
+        resolved = path.resolve()
+        try:
+            return resolved.relative_to(self.root.resolve()).as_posix()
+        except ValueError:
+            pass
+        try:
+            rel = resolved.relative_to(self._active_root.resolve()).as_posix()
+        except ValueError:
+            return resolved.as_posix()
+        return f"active/{rel}"
 
     # --- internals ---
 
@@ -1051,15 +1206,443 @@ class GraphStore(_GraphStoreAliases):
         return writer_of(path.name) == self.writer_id
 
     def _append(self, path: Path, line: str) -> None:
-        # Only this writer's own files are ever appended to (format v2).
-        # Readers never write: registration happens on the first write.
+        # The synced path is only a name. Bytes go to one local log per directory,
+        # never one file per shard: a later seal publishes a single bundle.
         if not self._registered:
             self._register_writer_unlocked()
             self._registered = True
-        append_jsonl(path, line, repair=self._owns(path))
+        active = self._active_log(path.parent)
+        first = not active.is_file() or active.stat().st_size == 0
+        append_jsonl(active, line, repair=True)
+        now = time.monotonic()
+        key = self._fp_key(active)
+        if first or key not in self._active_since:
+            self._active_since[key] = now
+        self._active_last[key] = now
+        self._touch_index(active)
+        if not in_append_batch():
+            self._maybe_publish_directory(path.parent, force=False)
+
+    def _active_dir(self, directory: Path) -> Path:
+        try:
+            rel = directory.resolve().relative_to(self.root.resolve())
+        except ValueError:
+            rel = Path(directory.name)
+        return self._active_root.joinpath(*rel.parts)
+
+    def _active_log(self, directory: Path) -> Path:
+        """One growing log for every shard in `directory`. Not inside the synced folder."""
+        return self._active_dir(directory) / "records.jsonl"
+
+    def _active_file(self, directory: Path, stem: str) -> Path:
+        """Local log a test or a previous process may still have for one stem.
+
+        New writes go to ``_active_log``. This name is only how leftover
+        per-shard logs are found.
+        """
+        return self._active_dir(directory) / f"{stem}.jsonl"
+
+    def _stem_files(self, directory: Path, stem: str) -> list[Path]:
+        """v1, v2, per-shard segments, their conflict copies, and a leftover per-shard log."""
+        found = shard_jsonl_files(directory, stem)
+        leftover = self._active_file(directory, stem)
+        if leftover.is_file() and leftover.stat().st_size > 0:
+            found.append(leftover)
+        return found
+
+    def _shared_sources(self, directory: Path) -> list[Path]:
+        """Bundles and the single active log. Callers read these once, not once per shard."""
+        found = bundle_jsonl_files(directory)
+        active = self._active_log(directory)
+        if active.is_file() and active.stat().st_size > 0:
+            found.append(active)
+        return found
+
+    def _active_logs(self, directory: Path) -> list[Path]:
+        active_dir = self._active_dir(directory)
+        if not active_dir.is_dir():
+            return []
+        found: list[Path] = []
+        for child in sorted(active_dir.glob("*.jsonl")):
+            if child.is_file() and child.stat().st_size > 0:
+                found.append(child)
+        return found
+
+    def _stems(self, directory: Path) -> list[str]:
+        stems = set(discover_shard_stems(directory))
+        active_dir = self._active_dir(directory)
+        if active_dir.is_dir():
+            for child in active_dir.iterdir():
+                if not child.is_file() or not child.name.endswith(".jsonl"):
+                    continue
+                stem = child.name[: -len(".jsonl")]
+                if stem == "deleted" or (
+                    len(stem) == 2 and all(c in "0123456789abcdef" for c in stem)
+                ):
+                    stems.add(stem)
+        return sorted(stems)
+
+    def _own_paths(self, directory: Path, stem: str) -> list[Path]:
+        """This writer's per-shard files for one stem, plus a leftover per-shard log."""
+        found = [path for path in shard_jsonl_files(directory, stem) if self._owns(path)]
+        leftover = self._active_file(directory, stem)
+        if leftover.is_file() and leftover.stat().st_size > 0:
+            found.append(leftover)
+        return found
+
+    def _legacy_v2_paths(self) -> list[Path]:
+        found: list[Path] = []
+        for path in self._managed_files():
+            if path.is_file() and is_legacy_v2_name(path.name):
+                found.append(path)
+        return found
+
+    def _start_publisher(self) -> None:
+        period = self._publisher_period()
+        if period is None or self._publisher is not None:
+            return
+        ref = weakref.ref(self)
+        stop = self._stop
+
+        def loop() -> None:
+            while not stop.wait(period):
+                store = ref()
+                if store is None:
+                    return
+                try:
+                    store.publish_due()
+                except Exception:
+                    log.debug("graph-ted-db: background publish failed", exc_info=True)
+                finally:
+                    del store
+
+        thread = threading.Thread(target=loop, name="gtdb-publish", daemon=True)
+        self._publisher = thread
+        thread.start()
+
+    def _publisher_period(self) -> float | None:
+        waits = [
+            value
+            for value in (self._policy.idle, self._policy.max_interval)
+            if value > 0
+        ]
+        if not waits:
+            return None
+        return max(0.05, min(0.25, min(waits) / 2))
+
+    def publish_due(self) -> None:
+        """Seal active logs that have hit the size, interval, or idle rule."""
+        if self._stop.is_set():
+            return
+        with self._lock():
+            self._publish_due_unlocked(force=False)
+
+    def _publish_due_unlocked(self, *, force: bool) -> int:
+        if not self._active_root.is_dir():
+            return 0
+        sealed = 0
+        seen: set[Path] = set()
+        for path in sorted(self._active_root.rglob("*.jsonl")):
+            if not path.is_file():
+                continue
+            directory, _stem = self._synced_target(path)
+            if directory in seen:
+                continue
+            seen.add(directory)
+            if self._maybe_publish_directory(directory, force=force):
+                sealed += 1
+        return sealed
+
+    def _maybe_publish_directory(self, directory: Path, *, force: bool) -> bool:
+        """Seal every shard in `directory` into one file when the publish rule says so."""
+        if in_append_batch():
+            return False
+        logs = self._active_logs(directory)
+        if not logs:
+            return False
+        now = time.monotonic()
+        total = 0
+        oldest = now
+        newest = 0.0
+        for path in logs:
+            try:
+                total += path.stat().st_size
+            except OSError:
+                continue
+            key = self._fp_key(path)
+            oldest = min(oldest, self._active_since.get(key, now))
+            newest = max(newest, self._active_last.get(key, now))
+        quiet = now - newest if newest else 0.0
+        if not due(self._policy, size=total, age=now - oldest, quiet=quiet, force=force):
+            return False
+        return self._seal_directory(directory, logs) is not None
+
+    def _seal_directory(self, directory: Path, logs: list[Path]) -> Path | None:
+        """Publish one immutable file for every non-empty active log in `directory`."""
+        parts: list[bytes] = []
+        for path in logs:
+            if has_unterminated_tail(path):
+                repair_torn_jsonl(path)
+            try:
+                data = path.read_bytes()
+            except OSError:
+                continue
+            if not data:
+                continue
+            parts.append(data if data.endswith(b"\n") else data + b"\n")
+        payload = b"".join(parts)
+        if not payload:
+            return None
+        tombstones = directory == self.paths.meta_dir
+        if self._payload_already_sealed(directory, payload, tombstones=tombstones):
+            self._truncate_logs(logs)
+            return None
+        if not self._registered:
+            self._register_writer_unlocked()
+            self._registered = True
+        directory.mkdir(parents=True, exist_ok=True)
+        if tombstones:
+            dest = segment_path(
+                directory,
+                "deleted",
+                self.writer_id,
+                next_seq(directory, "deleted", self.writer_id),
+            )
+        else:
+            dest = bundle_path(
+                directory, self.writer_id, next_bundle_seq(directory, self.writer_id)
+            )
+        publish_immutable(dest, payload, stage_dir=self._stage_dir)
+        self._truncate_logs(logs)
+        self._touch_index(dest)
+        self._maybe_autocompact(directory)
+        return dest
+
+    def _truncate_logs(self, logs: list[Path]) -> None:
+        for path in logs:
+            truncate_file(path)
+            key = self._fp_key(path)
+            self._active_since.pop(key, None)
+            self._active_last.pop(key, None)
+            self._touch_index(path)
+
+    def _payload_already_sealed(self, directory: Path, data: bytes, *, tombstones: bool) -> bool:
+        paths = (
+            self._own_sealed(directory, "deleted") if tombstones else self._own_bundles(directory)
+        )
+        for path in paths:
+            try:
+                if path.stat().st_size == len(data) and path.read_bytes() == data:
+                    return True
+            except OSError:
+                continue
+        return False
+
+    def _synced_target(self, active: Path) -> tuple[Path, str]:
+        rel = active.resolve().relative_to(self._active_root.resolve())
+        stem = rel.name[: -len(".jsonl")]
+        parent = self.root.joinpath(*rel.parts[:-1])
+        return parent, stem
+
+    def _own_sealed(self, directory: Path, stem: str) -> list[Path]:
+        found: list[Path] = []
+        if not directory.is_dir():
+            return found
+        prefix = f"{stem}.{self.writer_id}."
+        for child in sorted(directory.iterdir()):
+            sealed = child.is_file() and is_sealed_segment_name(child.name)
+            if (
+                sealed
+                and child.name.startswith(prefix)
+                and segment_stem(child.name) == stem
+                and writer_of(child.name) == self.writer_id
+            ):
+                found.append(child)
+        return found
+
+    def _own_bundles(self, directory: Path) -> list[Path]:
+        if not directory.is_dir():
+            return []
+        found: list[Path] = []
+        for child in sorted(directory.iterdir()):
+            if (
+                child.is_file()
+                and is_bundle_name(child.name)
+                and writer_of(child.name) == self.writer_id
+            ):
+                found.append(child)
+        return found
+
+    def _maybe_autocompact(self, directory: Path) -> None:
+        limit = self._policy.compact_after
+        if limit <= 0:
+            return
+        if directory == self.paths.meta_dir:
+            if len(self._own_sealed(directory, "deleted")) > limit:
+                self._compact_tombstones()
+            return
+        if len(self._own_bundles(directory)) <= limit:
+            return
+        if self._is_vector_path(directory):
+            self._compact_vectors(directory.name)
+        elif directory == self.paths.nodes_dir:
+            self._compact_nodes()
+        elif directory == self.paths.edges_dir:
+            self._compact_edges()
+
+    def _install_payload(self, directory: Path, lines: list[str], *, kind: str) -> None:
+        """Publish one new file of `lines` and delete this writer's older files.
+
+        ``kind`` is ``bundle`` (every shard) or ``deleted`` (tombstones). No
+        existing file is modified. An empty result deletes our old files and
+        does not leave a zero-byte file in the synced folder.
+        """
+        payload = "".join(line.rstrip("\n") + "\n" for line in lines).encode("utf-8")
+        existing = self._superseded(directory, kind)
+        sealed = [path for path in existing if is_sealed_segment_name(path.name)]
+        legacy = [path for path in existing if is_legacy_v2_name(path.name)]
+        active = self._active_logs(directory)
+        if len(sealed) == 1 and not legacy and not active and sealed[0].read_bytes() == payload:
+            return
+        dest: Path | None = None
+        if payload:
+            directory.mkdir(parents=True, exist_ok=True)
+            if kind == "deleted":
+                dest = segment_path(
+                    directory,
+                    "deleted",
+                    self.writer_id,
+                    next_seq(directory, "deleted", self.writer_id),
+                )
+            else:
+                dest = bundle_path(
+                    directory, self.writer_id, next_bundle_seq(directory, self.writer_id)
+                )
+            publish_immutable(dest, payload, stage_dir=self._stage_dir)
+            self._touch_index(dest)
+        for path in sealed + legacy:
+            if dest is not None and path.resolve() == dest.resolve():
+                continue
+            try:
+                path.unlink()
+            except OSError:
+                pass
+            self._touch_index(path)
+        self._truncate_logs(active)
+        if directory.is_dir():
+            fsync_directory(directory)
+
+    def _superseded(self, directory: Path, kind: str) -> list[Path]:
+        """This writer's files in `directory` that a rewrite replaces."""
+        if not directory.is_dir():
+            return []
+        found: list[Path] = []
+        for child in sorted(directory.iterdir()):
+            if not child.is_file() or writer_of(child.name) != self.writer_id:
+                continue
+            stem = segment_stem(child.name)
+            bundle_or_shard = is_bundle_name(child.name) or is_per_shard_segment_name(child.name)
+            legacy_shard = is_legacy_v2_name(child.name) and stem != "deleted"
+            if (kind == "deleted" and stem == "deleted") or (
+                kind != "deleted" and (bundle_or_shard or legacy_shard)
+            ):
+                found.append(child)
+        return found
+
+    def _recover_active(self) -> list[str]:
+        torn: list[str] = []
+        if not self._active_root.is_dir():
+            return torn
+        for path in sorted(self._active_root.rglob("*.jsonl")):
+            discarded = repair_torn_jsonl(path)
+            if discarded:
+                torn.append(f"{path} ({discarded} bytes)")
+        if self._stage_dir.is_dir():
+            for child in self._stage_dir.iterdir():
+                if child.is_file():
+                    try:
+                        child.unlink()
+                    except OSError:
+                        pass
+        return torn
+
+    def _fold_directories(self) -> list[Path]:
+        found = [self.paths.nodes_dir, self.paths.edges_dir, self.paths.meta_dir]
+        for name in self._vector_property_names():
+            found.append(self.paths.vectors_dir / name)
+        return found
+
+    def _migrate_owned_legacy(self) -> list[str]:
+        """Fold this writer's v2 files and per-shard segments into one bundle.
+
+        The bytes are copied as they are. Last-write-wins still runs at read
+        time, so a dangling edge or an older version is not dropped here:
+        ``compact()`` is what rewrites winners. Other writers' files are left
+        for them. A reader that still sees both the old names and the bundle
+        unions them. The old names are removed only after the bundle is durable.
+        """
+        moved: list[str] = []
+        for directory in self._fold_directories():
+            if not directory.is_dir():
+                continue
+            old = [
+                path
+                for path in sorted(directory.iterdir())
+                if path.is_file()
+                and writer_of(path.name) == self.writer_id
+                and (is_legacy_v2_name(path.name) or is_per_shard_segment_name(path.name))
+            ]
+            if not old:
+                continue
+            if not self._registered:
+                self._register_writer_unlocked()
+                self._registered = True
+            moved.extend(self._rel(path) for path in old)
+            self._fold_owned_files(directory, old)
+        self._migrated.extend(moved)
+        self._legacy_v2 = [str(p) for p in self._legacy_v2_paths()]
+        return moved
+
+    def _fold_owned_files(self, directory: Path, old: list[Path]) -> None:
+        parts: list[bytes] = []
+        for path in old:
+            if not is_sealed_segment_name(path.name) and has_unterminated_tail(path):
+                repair_torn_jsonl(path)
+            try:
+                data = path.read_bytes()
+            except OSError:
+                continue
+            if data:
+                parts.append(data if data.endswith(b"\n") else data + b"\n")
+        payload = b"".join(parts)
+        tombstones = directory == self.paths.meta_dir
+        if payload and not self._payload_already_sealed(
+            directory, payload, tombstones=tombstones
+        ):
+            if tombstones:
+                dest = segment_path(
+                    directory,
+                    "deleted",
+                    self.writer_id,
+                    next_seq(directory, "deleted", self.writer_id),
+                )
+            else:
+                dest = bundle_path(
+                    directory, self.writer_id, next_bundle_seq(directory, self.writer_id)
+                )
+            publish_immutable(dest, payload, stage_dir=self._stage_dir)
+            self._touch_index(dest)
+        for path in old:
+            try:
+                path.unlink()
+            except OSError:
+                pass
+            self._touch_index(path)
+        if directory.is_dir():
+            fsync_directory(directory)
 
     def _register_writer_unlocked(self) -> None:
-        """Announce this writer in meta/writers/ and mark the store format v2.
+        """Announce this writer in meta/writers/ and mark the store format v4.
 
         Each writer only ever creates its own registration file, so the
         writers list never conflicts in a sync client.
@@ -1077,7 +1660,7 @@ class GraphStore(_GraphStoreAliases):
             )
         if self.meta.format_version < FORMAT_VERSION:
             extras = dict(self.meta.extras)
-            extras["layout"] = LAYOUT_PER_WRITER
+            extras["layout"] = LAYOUT_BUNDLES
             self.meta = replace(self.meta, format_version=FORMAT_VERSION, extras=extras)
             replace_json_file(self.paths.graph_json, self.meta.to_dict())
 
@@ -1127,6 +1710,7 @@ class GraphStore(_GraphStoreAliases):
         torn: list[str] = []
         tmp_removed: list[str] = []
         self._foreign_torn = []
+        self._sealed_torn = []
         self._cloud_only = []
         self._empty_files = []
         for path in self._managed_files():
@@ -1149,15 +1733,25 @@ class GraphStore(_GraphStoreAliases):
                 elif st.st_size == 0:
                     self._empty_files.append(str(path))
                     continue
+                if is_sealed_segment_name(path.name):
+                    # Published bytes are immutable, including our own. A missing
+                    # newline is a partial delivery, not a tail we may truncate.
+                    if has_unterminated_tail(path):
+                        self._sealed_torn.append(str(path))
+                        if not self._owns(path):
+                            self._foreign_torn.append(str(path))
+                    continue
                 if not self._owns(path):
-                    # Another device's file: a missing newline usually means
-                    # the sync client has not finished. Never modify it.
+                    # Another device's file, or a v1 shared file: a missing
+                    # newline usually means the sync client has not finished.
                     if has_unterminated_tail(path):
                         self._foreign_torn.append(str(path))
                     continue
+                # Owned legacy v2 file. Repair, then migration seals it.
                 discarded = repair_torn_jsonl(path)
                 if discarded:
                     torn.append(f"{path} ({discarded} bytes)")
+        self._legacy_v2 = [str(p) for p in self._legacy_v2_paths()]
         return torn, tmp_removed
 
     def _managed_files(self) -> list[Path]:
@@ -1184,8 +1778,10 @@ class GraphStore(_GraphStoreAliases):
         return found
 
     def _conflict_copy_paths(self) -> list[Path]:
-        # The canonical shard may be absent (rclone bisync renames both sides),
-        # so filter by name rather than dropping the first file.
+        # The canonical name may be absent (rclone bisync renames both sides),
+        # so filter by name rather than dropping the first file. A bundle does
+        # not start with a shard stem, so its conflict copies are listed apart
+        # from the per-stem scan.
         def copies(directory: Path, stem: str) -> list[Path]:
             return [
                 p
@@ -1193,16 +1789,24 @@ class GraphStore(_GraphStoreAliases):
                 if p.name != f"{stem}.jsonl" and writer_of(p.name) is None
             ]
 
+        def bundle_copies(directory: Path) -> list[Path]:
+            return [p for p in bundle_jsonl_files(directory) if writer_of(p.name) is None]
+
         found: list[Path] = []
         for directory in (self.paths.nodes_dir, self.paths.edges_dir):
+            if directory.is_dir():
+                found.extend(bundle_copies(directory))
             for stem in discover_shard_stems(directory):
                 found.extend(copies(directory, stem))
         if self.paths.vectors_dir.is_dir():
             for prop_dir in sorted(self.paths.vectors_dir.iterdir()):
                 if not prop_dir.is_dir():
                     continue
+                found.extend(bundle_copies(prop_dir))
                 for stem in discover_shard_stems(prop_dir):
                     found.extend(copies(prop_dir, stem))
+        if self.paths.meta_dir.is_dir():
+            found.extend(bundle_copies(self.paths.meta_dir))
         found.extend(copies(self.paths.meta_dir, "deleted"))
         return found
 
@@ -1255,29 +1859,37 @@ class GraphStore(_GraphStoreAliases):
     def _lww_nodes_unlocked(self) -> list[NodeRecord]:
         out: list[NodeRecord] = []
         tombs_by_id = self._tombstones_by_id("node")
-        for stem in discover_shard_stems(self.paths.nodes_dir):
-            grouped: dict[str, list[NodeRecord]] = defaultdict(list)
-            for rec in self._iter_node_records(stem):
+        grouped: dict[str, list[NodeRecord]] = defaultdict(list)
+        for stem in self._stems(self.paths.nodes_dir):
+            for path in self._stem_files(self.paths.nodes_dir, stem):
+                for rec in self._parse_nodes(path):
+                    grouped[rec.id].append(rec)
+        for path in self._shared_sources(self.paths.nodes_dir):
+            for rec in self._parse_nodes(path):
                 grouped[rec.id].append(rec)
-            for record_id, lives in grouped.items():
-                picked = resolve(lives, tombs_by_id.get(record_id, []))
-                if picked is not None and not picked.is_tombstone:
-                    assert isinstance(picked.payload, NodeRecord)
-                    out.append(picked.payload)
+        for record_id, lives in grouped.items():
+            picked = resolve(lives, tombs_by_id.get(record_id, []))
+            if picked is not None and not picked.is_tombstone:
+                assert isinstance(picked.payload, NodeRecord)
+                out.append(picked.payload)
         return out
 
     def _lww_edges_unlocked(self) -> list[EdgeRecord]:
         out: list[EdgeRecord] = []
         tombs_by_id = self._tombstones_by_id("edge")
-        for stem in discover_shard_stems(self.paths.edges_dir):
-            grouped: dict[str, list[EdgeRecord]] = defaultdict(list)
-            for rec in self._iter_edge_records(stem):
+        grouped: dict[str, list[EdgeRecord]] = defaultdict(list)
+        for stem in self._stems(self.paths.edges_dir):
+            for path in self._stem_files(self.paths.edges_dir, stem):
+                for rec in self._parse_edges(path):
+                    grouped[rec.id].append(rec)
+        for path in self._shared_sources(self.paths.edges_dir):
+            for rec in self._parse_edges(path):
                 grouped[rec.id].append(rec)
-            for record_id, lives in grouped.items():
-                picked = resolve(lives, tombs_by_id.get(record_id, []))
-                if picked is not None and not picked.is_tombstone:
-                    assert isinstance(picked.payload, EdgeRecord)
-                    out.append(picked.payload)
+        for record_id, lives in grouped.items():
+            picked = resolve(lives, tombs_by_id.get(record_id, []))
+            if picked is not None and not picked.is_tombstone:
+                assert isinstance(picked.payload, EdgeRecord)
+                out.append(picked.payload)
         return out
 
     def _graph_edges_unlocked(self) -> list[EdgeRecord]:
@@ -1296,28 +1908,26 @@ class GraphStore(_GraphStoreAliases):
             if edge.from_id not in live_nodes or edge.to_id not in live_nodes
         ]
 
-    def _iter_node_records(self, stem: str) -> Iterator[NodeRecord]:
-        for path in shard_jsonl_files(self.paths.nodes_dir, stem):
-            yield from self._parse_nodes(path)
-
-    def _iter_edge_records(self, stem: str) -> Iterator[EdgeRecord]:
-        for path in shard_jsonl_files(self.paths.edges_dir, stem):
-            yield from self._parse_edges(path)
-
     def _load_nodes_for(self, record_id: str) -> list[NodeRecord]:
-        stem = shard_id(record_id)
-        return [r for r in self._iter_node_records(stem) if r.id == record_id]
+        return self._load_matching(self.paths.nodes_dir, record_id, self._parse_nodes)
 
     def _load_edges_for(self, record_id: str) -> list[EdgeRecord]:
-        stem = shard_id(record_id)
-        return [r for r in self._iter_edge_records(stem) if r.id == record_id]
+        return self._load_matching(self.paths.edges_dir, record_id, self._parse_edges)
 
     def _load_vectors_for(self, property_name: str, record_id: str) -> list[VectorRecord]:
-        stem = shard_id(record_id)
         directory = self.paths.vectors_dir / property_name
-        out: list[VectorRecord] = []
-        for path in shard_jsonl_files(directory, stem):
-            for rec in self._parse_vectors(path, property_name):
+
+        def parse(path: Path) -> Iterator[VectorRecord]:
+            return self._parse_vectors(path, property_name)
+
+        return self._load_matching(directory, record_id, parse)
+
+    def _load_matching(self, directory: Path, record_id: str, parse: Any) -> list[Any]:
+        stem = shard_id(record_id)
+        out: list[Any] = []
+        paths = self._stem_files(directory, stem) + self._shared_sources(directory)
+        for path in paths:
+            for rec in parse(path):
                 if rec.id == record_id:
                     out.append(rec)
         return out
@@ -1353,7 +1963,11 @@ class GraphStore(_GraphStoreAliases):
             yield vec
 
     def _tombstone_files(self) -> list[Path]:
-        return shard_jsonl_files(self.paths.meta_dir, "deleted")
+        found = self._stem_files(self.paths.meta_dir, "deleted")
+        for path in self._shared_sources(self.paths.meta_dir):
+            if path not in found:
+                found.append(path)
+        return found
 
     def _iter_tombstones(self) -> Iterator[Tombstone]:
         for path in self._tombstone_files():
@@ -1451,10 +2065,7 @@ class GraphStore(_GraphStoreAliases):
             labels.update(node.labels)
         for edge in self._lww_edges_unlocked():
             types.add(edge.type)
-        if self.paths.vectors_dir.is_dir():
-            for prop_dir in self.paths.vectors_dir.iterdir():
-                if prop_dir.is_dir() and is_vector_property_name(prop_dir.name):
-                    vecs.add(prop_dir.name)
+        vecs.update(self._vector_property_names())
         replace_json_file(
             self.paths.labels_json,
             {
@@ -1464,73 +2075,117 @@ class GraphStore(_GraphStoreAliases):
             },
         )
 
+    def _sources(self, directory: Path, *, own: bool) -> list[Path]:
+        found: list[Path] = []
+        if directory.is_dir():
+            for child in sorted(directory.iterdir()):
+                if not child.is_file() or not is_record_file_name(child.name):
+                    continue
+                if (writer_of(child.name) == self.writer_id) is not own:
+                    continue
+                found.append(child)
+        if own:
+            found.extend(self._active_logs(directory))
+        return found
+
     def _compact_nodes(self) -> None:
+        directory = self.paths.nodes_dir
+        own_paths = self._sources(directory, own=True)
+        if not own_paths:
+            return
         tombs_by_id = self._tombstones_by_id("node")
-        for stem in discover_shard_stems(self.paths.nodes_dir):
-            grouped: dict[str, list[NodeRecord]] = defaultdict(list)
-            for rec in self._iter_node_records(stem):
+        grouped: dict[str, list[NodeRecord]] = defaultdict(list)
+        for path in own_paths:
+            for rec in self._parse_nodes(path):
                 grouped[rec.id].append(rec)
-            lines: list[str] = []
-            for record_id, lives in grouped.items():
-                picked = resolve(lives, tombs_by_id.get(record_id, []))
-                if picked is not None and not picked.is_tombstone:
-                    lines.append(picked.payload.to_jsonl())
-            replace_jsonl(self.paths.own_file(self.paths.nodes_dir, stem), lines)
+        others: dict[str, list[NodeRecord]] = defaultdict(list)
+        for path in self._sources(directory, own=False):
+            for rec in self._parse_nodes(path):
+                others[rec.id].append(rec)
+        lines: list[str] = []
+        for record_id, lives in grouped.items():
+            picked = resolve(lives + others.get(record_id, []), tombs_by_id.get(record_id, []))
+            if picked is None or picked.is_tombstone:
+                continue
+            assert isinstance(picked.payload, NodeRecord)
+            if picked.payload.writer in (self.writer_id, ""):
+                lines.append(picked.payload.to_jsonl())
+        self._install_payload(directory, lines, kind="bundle")
 
     def _compact_edges(self) -> None:
+        directory = self.paths.edges_dir
+        own_paths = self._sources(directory, own=True)
+        if not own_paths:
+            return
         tombs_by_id = self._tombstones_by_id("edge")
         live_nodes = {node.id for node in self._lww_nodes_unlocked()}
-        for stem in discover_shard_stems(self.paths.edges_dir):
-            grouped: dict[str, list[EdgeRecord]] = defaultdict(list)
-            for rec in self._iter_edge_records(stem):
+        grouped: dict[str, list[EdgeRecord]] = defaultdict(list)
+        for path in own_paths:
+            for rec in self._parse_edges(path):
                 grouped[rec.id].append(rec)
-            lines: list[str] = []
-            for record_id, lives in grouped.items():
-                picked = resolve(lives, tombs_by_id.get(record_id, []))
-                if picked is None or picked.is_tombstone:
-                    continue
-                assert isinstance(picked.payload, EdgeRecord)
-                edge = picked.payload
-                if edge.from_id in live_nodes and edge.to_id in live_nodes:
-                    lines.append(edge.to_jsonl())
-            replace_jsonl(self.paths.own_file(self.paths.edges_dir, stem), lines)
+        others: dict[str, list[EdgeRecord]] = defaultdict(list)
+        for path in self._sources(directory, own=False):
+            for rec in self._parse_edges(path):
+                others[rec.id].append(rec)
+        lines: list[str] = []
+        for record_id, lives in grouped.items():
+            picked = resolve(lives + others.get(record_id, []), tombs_by_id.get(record_id, []))
+            if picked is None or picked.is_tombstone:
+                continue
+            assert isinstance(picked.payload, EdgeRecord)
+            edge = picked.payload
+            if edge.writer not in (self.writer_id, ""):
+                continue
+            if edge.from_id in live_nodes and edge.to_id in live_nodes:
+                lines.append(edge.to_jsonl())
+        self._install_payload(directory, lines, kind="bundle")
 
-    def _compact_vectors(self) -> None:
-        if not self.paths.vectors_dir.is_dir():
-            return
-        for prop_dir in sorted(self.paths.vectors_dir.iterdir()):
-            if not prop_dir.is_dir() or not is_vector_property_name(prop_dir.name):
+    def _compact_vectors(self, only: str | None = None) -> None:
+        names = [only] if only is not None else self._vector_property_names()
+        for name in names:
+            prop_dir = self.paths.vectors_dir / name
+            own_paths = self._sources(prop_dir, own=True)
+            if not own_paths:
                 continue
             tombs_by_id: dict[str, list[Tombstone]] = defaultdict(list)
             for tomb in self._iter_tombstones():
-                if tomb.kind == "vector" and tomb.property == prop_dir.name:
+                if tomb.kind == "vector" and tomb.property == name:
                     tombs_by_id[tomb.id].append(tomb)
-            for stem in discover_shard_stems(prop_dir):
-                grouped: dict[str, list[VectorRecord]] = defaultdict(list)
-                for path in shard_jsonl_files(prop_dir, stem):
-                    for rec in self._parse_vectors(path, prop_dir.name):
-                        grouped[rec.id].append(rec)
-                lines: list[str] = []
-                for record_id, lives in grouped.items():
-                    picked = resolve(lives, tombs_by_id.get(record_id, []))
-                    if picked is not None and not picked.is_tombstone:
-                        lines.append(picked.payload.to_jsonl())
-                replace_jsonl(self.paths.own_file(prop_dir, stem), lines)
+            grouped: dict[str, list[VectorRecord]] = defaultdict(list)
+            for path in own_paths:
+                for rec in self._parse_vectors(path, name):
+                    grouped[rec.id].append(rec)
+            others: dict[str, list[VectorRecord]] = defaultdict(list)
+            for path in self._sources(prop_dir, own=False):
+                for rec in self._parse_vectors(path, name):
+                    others[rec.id].append(rec)
+            lines: list[str] = []
+            for record_id, lives in grouped.items():
+                picked = resolve(lives + others.get(record_id, []), tombs_by_id.get(record_id, []))
+                if picked is None or picked.is_tombstone:
+                    continue
+                assert isinstance(picked.payload, VectorRecord)
+                if picked.payload.writer in (self.writer_id, ""):
+                    lines.append(picked.payload.to_jsonl())
+            self._install_payload(prop_dir, lines, kind="bundle")
 
     def _compact_tombstones(self) -> None:
+        directory = self.paths.meta_dir
+        own = [tomb for tomb in self._iter_tombstones() if tomb.writer == self.writer_id]
+        if not own and not self._sources(directory, own=True):
+            return
         best: dict[tuple[str, str, str | None], Tombstone] = {}
-        for tomb in self._iter_tombstones():
+        for tomb in own:
             key = (tomb.kind, tomb.id, tomb.property)
             prev = best.get(key)
             if prev is None:
                 best[key] = tomb
                 continue
             picked = resolve([], [prev, tomb])
-            if picked is not None:
-                assert isinstance(picked.payload, Tombstone)
+            if picked is not None and isinstance(picked.payload, Tombstone):
                 best[key] = picked.payload
-        lines = [t.to_jsonl() for t in best.values()]
-        replace_jsonl(self.paths.deleted_jsonl, lines)
+        lines = [tomb.to_jsonl() for tomb in best.values()]
+        self._install_payload(directory, lines, kind="deleted")
 
 
 def _wal_groups(path: Path) -> list[list[tuple[str, Any]]]:

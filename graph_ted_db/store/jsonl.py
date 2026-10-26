@@ -211,6 +211,11 @@ def _prepare_append(path: Path, repair: bool) -> str:
     return "\n" if has_unterminated_tail(path) else ""
 
 
+def in_append_batch() -> bool:
+    """True while this thread is inside ``append_batch`` (the file is still open)."""
+    return isinstance(getattr(_local, "batch", None), _AppendBatch)
+
+
 def append_jsonl(path: Path, line: str, *, repair: bool = True) -> None:
     batch = getattr(_local, "batch", None)
     if isinstance(batch, _AppendBatch):
