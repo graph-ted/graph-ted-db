@@ -92,7 +92,7 @@ No client application is needed. Against a folder:
 2. **CLI queries** — `graph-ted-db cypher ./my-graph 'MATCH (n) RETURN n.name AS name'`
 3. **This daemon** — `serve` + the curls above
 
-Writes through openCypher queries include `CREATE` / `MERGE` / `SET` / `DELETE` / `DETACH DELETE` (POST only). The optional Graphiti driver (`GraphTedDbDriver`) accepts an `http://` URL for this daemon. Opening `GraphStore` in-process remains available for library and CLI use.
+Writes through openCypher queries include `CREATE` / `MERGE` / `SET` / `DELETE` / `DETACH DELETE` (POST only). `DELETE` / `DETACH DELETE` also tombstones embeddings of the deleted nodes and relationships, so a later vector search does not return them. There is no separate vector-delete route. The optional Graphiti driver (`GraphTedDbDriver`) accepts an `http://` URL for this daemon. Opening `GraphStore` in-process remains available for library and CLI use.
 
 `put-node` / `put-edge` from another terminal (a second process) are visible on the **next** `/cypher` request. The daemon reloads its catalog when shard files change; you do not need to restart `serve`.
 

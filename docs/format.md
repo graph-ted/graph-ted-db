@@ -275,6 +275,10 @@ Path: `meta/deleted.<writer>.<seq>.jsonl`
 
 A tombstone dominates a live record with the same id (and property, for vectors) iff the tombstone **wins LWW** against that record. A later live record with a newer `updated_at` resurrects the id.
 
+Deleting a node or an edge also writes one `kind: "vector"` tombstone for each embedding that is live for that id, and a node delete does the same for the incident edges it detaches. Those lines use the tombstone shape above (`property` is already required when `kind` is `vector`). They are part of the same transaction as the node or edge tombstone: one commit record, so a crash keeps or drops the element and its embeddings together. This does not change `format_version`.
+
+An embedding is not a search hit unless its owner is a live node or a live edge. A concurrent writer can store a newer vector that wins LWW against the vector tombstone; search still skips it while the owner stays deleted. Writing the element again, with a newer embedding, makes that new embedding searchable.
+
 **Retention.** Tombstones are kept forever in this version. `compact` keeps this writer's winning tombstone per id and publishes it as a new segment; it does not delete another writer's tombstones. So a device that was offline for a long time and comes back with old versions cannot bring deleted records back: its old versions are older than the tombstone and lose. Only a version stamped **after** the tombstone wins, which is an edit, not a resurrection by accident. A future cleanup must not drop a tombstone until every registered writer is known to have seen it.
 
 ## Last-write-wins
