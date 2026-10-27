@@ -19,6 +19,20 @@
     pip show graph-ted-db
     ```
 
+### What 0.1.2 shows on an older folder
+
+When 0.1.2 or newer opens a folder that is still in the older format, it
+reads it normally and prints one information line (on stderr from the
+command line, at INFO level from Python's `logging`):
+
+```text
+graph-ted-db: This graph uses an older storage format. It will be upgraded automatically the next time it's saved. All machines sharing this folder need graph-ted-db 0.1.2 or newer.
+```
+
+This is not an error, and you don't need to run `doctor`. `info --check`
+and `doctor` list the older files on an `info:` line and don't count them
+as problems.
+
 ### What an older release shows
 
 0.1.1 and 0.1.0 refuse the folder before reading or writing anything. Every

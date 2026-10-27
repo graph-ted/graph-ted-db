@@ -253,6 +253,7 @@ def _info_payload(store: GraphStore) -> dict[str, Any]:
     payload["nodes"] = 0
     payload["edges"] = 0
     payload["problems"] = store.problems()
+    payload["notices"] = store.notices()
     if store._index is not None:
         payload["nodes"] = len(store._index.nodes)
         payload["edges"] = len(store._index.edges)

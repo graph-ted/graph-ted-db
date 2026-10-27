@@ -97,6 +97,12 @@ from graph_ted_db.store.segments import (
 
 log = logging.getLogger("graph_ted_db")
 
+OLDER_FORMAT_NOTICE = (
+    "This graph uses an older storage format. It will be upgraded automatically"
+    " the next time it's saved. All machines sharing this folder need"
+    " graph-ted-db 0.1.2 or newer."
+)
+
 # Stores still referenced at process exit. A killed process does not run this;
 # the next open seals whatever the active log already fsynced.
 _LIVE: weakref.WeakSet[GraphStore] = weakref.WeakSet()
@@ -175,6 +181,7 @@ class DoctorReport:
     migrated: list[str] = field(default_factory=list)
     sealed_torn: list[str] = field(default_factory=list)
     meta_problems: list[str] = field(default_factory=list)
+    older_format: bool = False
     fix: bool = False
 
     def summary(self) -> str:
@@ -193,7 +200,6 @@ class DoctorReport:
             f"writer files without a registration (still syncing?): "
             f"{len(self.unregistered_writers)}",
             f"v1 shared files (read only): {len(self.legacy_shared_files)}",
-            f"v2 files not sealed yet: {len(self.legacy_v2_files)}",
             f"v2 files sealed into segments: {len(self.migrated)}",
             f"sealed segments with a torn tail (not modified): {len(self.sealed_torn)}",
             f"app meta files with problems (not modified): {len(self.meta_problems)}",
@@ -213,14 +219,17 @@ class DoctorReport:
             lines.append(f"  skipped {item}")
         for item in self.conflict_copies:
             lines.append(f"  conflict {item}")
-        for item in self.legacy_v2_files:
-            lines.append(f"  legacy v2 (still mutable until its writer opens) {item}")
         for item in self.migrated:
             lines.append(f"  sealed {item}")
         for item in self.sealed_torn:
             lines.append(f"  sealed torn (not modified) {item}")
         for item in self.meta_problems:
             lines.append(f"  meta {item}")
+        lines.append(f"info: older-format (v2) files, read normally: {len(self.legacy_v2_files)}")
+        for item in self.legacy_v2_files:
+            lines.append(f"  info: v2 file, folded when its writer opens with 0.1.2+ {item}")
+        if self.legacy_v2_files or self.older_format:
+            lines.append(f"info: {OLDER_FORMAT_NOTICE}")
         if self.dangling_edges_found and not self.fix:
             lines.append(
                 "dangling edges were reported, not deleted. In a synced folder their nodes may"
@@ -356,6 +365,8 @@ class GraphStore(_GraphStoreAliases):
                     store.meta.name,
                     problems,
                 )
+            if store.uses_older_format():
+                log.info("graph-ted-db: %s", OLDER_FORMAT_NOTICE)
         store._start_publisher()
         return store
 
@@ -374,9 +385,25 @@ class GraphStore(_GraphStoreAliases):
             "cloud_only_files": len(self._cloud_only),
             "empty_record_files": len(self._empty_files),
             "meta_problems": len(self._meta_problems()),
-            "legacy_v2_files": len(self._legacy_v2_paths()),
             "sealed_torn": len(self._sealed_torn),
         }
+
+    def notices(self) -> dict[str, int]:
+        """Informational counts. Not problems: nothing is hidden or damaged.
+
+        ``legacy_v2_files``: version 2 record files that are read normally and
+        folded into a bundle when their writer opens the folder with 0.1.2 or
+        newer. ``older_format``: 1 when ``graph.json`` still records an older
+        format version (upgraded on the next write).
+        """
+        return {
+            "legacy_v2_files": len(self._legacy_v2_paths()),
+            "older_format": int(self.meta.format_version < FORMAT_VERSION),
+        }
+
+    def uses_older_format(self) -> bool:
+        """True when the folder is in an older storage format (see ``notices``)."""
+        return any(self.notices().values())
 
     @contextmanager
     def _lock(self):
@@ -1279,6 +1306,7 @@ class GraphStore(_GraphStoreAliases):
             report.unregistered_writers = sorted(seen - set(report.writers))
             report.legacy_shared_files = legacy
             report.legacy_v2_files = [str(p) for p in self._legacy_v2_paths()]
+            report.older_format = self.meta.format_version < FORMAT_VERSION
             report.meta_problems = self._meta_problems()
         return report
 
