@@ -39,6 +39,9 @@ sdist installs in clean venvs) and post the results on the PR.
    - Move the `Unreleased` notes in `CHANGELOG.md` under the new version and date.
      Call out breaking changes under **Changed**, and any on-disk format change
      with its migration step.
+   - A format bump (`FORMAT_VERSION`) must ship its version check (older
+     readers refuse the folder without writing) and an upgrade note in
+     `CHANGELOG.md` and `docs/upgrading.md` in the same release.
 2. Merge that PR, then note the merge SHA.
 3. Dry run on TestPyPI: Actions → `release` → Run workflow → target `testpypi`.
    Then in a clean venv:

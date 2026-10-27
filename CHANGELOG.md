@@ -8,6 +8,18 @@ version may include breaking changes; they are called out under **Changed**.
 
 ## [0.1.2] - 2026-10-26
 
+### Upgrading to 0.1.2
+
+- Upgrade every machine that shares a graph folder at the same time.
+- After 0.1.2 writes to a folder, 0.1.1 and older can't open it. Reading with
+  0.1.2 doesn't change the folder; the first write does.
+- Check a machine's version with `graph-ted-db --version` or
+  `pip show graph-ted-db`.
+- An older release refuses the folder without writing to it, exits with
+  status 1, and prints:
+  `graph-ted-db: graph format_version 4 is newer than this library (2)`.
+  See [Upgrading](docs/upgrading.md).
+
 ### Fixed
 
 - Process exit does not wait forever on the store lock. If a background
