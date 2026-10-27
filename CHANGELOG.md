@@ -6,6 +6,8 @@ version may include breaking changes; they are called out under **Changed**.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-10-26
+
 ### Fixed
 
 - Process exit does not wait forever on the store lock. If a background
@@ -46,6 +48,11 @@ version may include breaking changes; they are called out under **Changed**.
 
 ### Changed
 
+- On-disk format version 4. Upgrade every device that writes to a shared
+  folder to 0.1.2: the first 0.1.2 writer folds its own older files into a
+  bundle and bumps `graph.json` to `format_version` 4, and 0.1.1 or earlier
+  then refuses to open the folder (format version newer than it understands).
+  No manual migration step; v1-v3 folders are read and upgraded on open.
 - `compact()` republishes this writer's own bundles. Another writer's files
   are not a reason to refuse; conflict copies still are. Automatic compaction
   runs after 4 sealed files in a directory (previously 16 files per shard).
@@ -128,6 +135,7 @@ First public release.
   or over HTTP.
 - Documentation site with `llms.txt` and `llms-full.txt`.
 
-[Unreleased]: https://github.com/graph-ted/graph-ted-db/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/graph-ted/graph-ted-db/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/graph-ted/graph-ted-db/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/graph-ted/graph-ted-db/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/graph-ted/graph-ted-db/releases/tag/v0.1.0
