@@ -9,6 +9,7 @@
 - **History.** Each seal adds one file for the directory, not one file per shard. `compact()` (and automatic compaction after 4 bundles in that directory) republishes this writer's winners and deletes its older bundles. Another writer's files are left alone. A busy writer stays at a handful of files per directory.
 - **Deleted writer files.** A writer's file deleted on the remote loses that writer's unsynced records.
 - **OneDrive Files On-Demand.** Keep the graph folder **Always keep on this device**.
+- **Versions.** Run the same graph-ted-db release on every device. A folder written by a newer format can't be opened by an older release; see [Upgrading](upgrading.md).
 
 ## If you use rclone
 
