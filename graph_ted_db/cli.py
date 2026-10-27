@@ -5,8 +5,11 @@ from __future__ import annotations
 import argparse
 import errno
 import json
+import logging
 import os
 import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +45,28 @@ def _store(path: Path) -> GraphStore:
     if not (root / "graph.json").is_file():
         raise GraphFormatError(f"no graph at {path}; create one with `graph-ted-db init {path}`")
     return GraphStore.open(root)
+
+
+@contextmanager
+def _log_to_stderr() -> Iterator[None]:
+    """Print the library's info and warning lines on stderr while a command runs.
+
+    Restores the logger afterwards, so calling ``main`` from Python leaves the
+    caller's logging setup as it was.
+    """
+    lib = logging.getLogger("graph_ted_db")
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    saved = (lib.level, lib.propagate)
+    lib.addHandler(handler)
+    lib.setLevel(logging.INFO)
+    lib.propagate = False
+    try:
+        yield
+    finally:
+        lib.removeHandler(handler)
+        lib.setLevel(saved[0])
+        lib.propagate = saved[1]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -211,7 +236,8 @@ def main(argv: list[str] | None = None) -> int:
     if extra:
         parser.error(f"unrecognized arguments: {' '.join(extra)}")
     try:
-        return _dispatch(args)
+        with _log_to_stderr():
+            return _dispatch(args)
     except (
         OSError,
         RuntimeError,
@@ -243,6 +269,8 @@ def _dispatch(args: argparse.Namespace) -> int:
                 f"writer={store.writer_id} writers={len(store.writers())} "
                 + " ".join(f"{k}={v}" for k, v in problems.items())
             )
+            notices = store.notices()
+            print("info: " + " ".join(f"{k}={v}" for k, v in notices.items()))
             return 1 if any(problems.values()) else 0
         return 0
     if args.command == "import":

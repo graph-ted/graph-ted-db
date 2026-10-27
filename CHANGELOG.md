@@ -6,6 +6,18 @@ version may include breaking changes; they are called out under **Changed**.
 
 ## [Unreleased]
 
+### Changed
+
+- Opening an older-format (v2) folder that reads normally is no longer
+  reported as a problem. It logs one info line instead of "opened with
+  problems … run `graph-ted-db doctor`": "This graph uses an older storage
+  format. It will be upgraded automatically the next time it's saved. All
+  machines sharing this folder need graph-ted-db 0.1.2 or newer."
+  `legacy_v2_files` moved from `GraphStore.problems()` to the new
+  `GraphStore.notices()` (also `notices` in `/info`). `info --check` prints
+  it on an `info:` line and no longer exits 1 for it alone; `doctor` lists
+  it as `info:`. The CLI now prints the library's info lines on stderr.
+
 ## [0.1.2] - 2026-10-26
 
 ### Upgrading to 0.1.2
