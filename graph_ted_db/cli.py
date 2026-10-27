@@ -16,6 +16,7 @@ from typing import Any
 from graph_ted_db import __version__
 from graph_ted_db.engine import CypherError
 from graph_ted_db.store import GraphFormatError, GraphStore, init_graph, load_graph_meta
+from graph_ted_db.store.graph import OLDER_FORMAT_NOTICE
 
 UPDATED_BY_ENV = "GRAPH_TED_DB_UPDATED_BY"
 
@@ -47,16 +48,26 @@ def _store(path: Path) -> GraphStore:
     return GraphStore.open(root)
 
 
+class _DropOlderFormatNotice(logging.Filter):
+    """``doctor`` prints the older-format line in its report; don't log it twice."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return OLDER_FORMAT_NOTICE not in record.getMessage()
+
+
 @contextmanager
-def _log_to_stderr() -> Iterator[None]:
+def _log_to_stderr(*, quiet_notice: bool = False) -> Iterator[None]:
     """Print the library's info and warning lines on stderr while a command runs.
 
     Restores the logger afterwards, so calling ``main`` from Python leaves the
-    caller's logging setup as it was.
+    caller's logging setup as it was. ``quiet_notice`` drops the older-format
+    info line for commands that print it themselves.
     """
     lib = logging.getLogger("graph_ted_db")
     handler = logging.StreamHandler(sys.stderr)
     handler.setFormatter(logging.Formatter("%(message)s"))
+    if quiet_notice:
+        handler.addFilter(_DropOlderFormatNotice())
     saved = (lib.level, lib.propagate)
     lib.addHandler(handler)
     lib.setLevel(logging.INFO)
@@ -236,7 +247,7 @@ def main(argv: list[str] | None = None) -> int:
     if extra:
         parser.error(f"unrecognized arguments: {' '.join(extra)}")
     try:
-        with _log_to_stderr():
+        with _log_to_stderr(quiet_notice=args.command == "doctor"):
             return _dispatch(args)
     except (
         OSError,

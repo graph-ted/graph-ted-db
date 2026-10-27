@@ -11,7 +11,7 @@ from graph_ted_db.store import (
 )
 from graph_ted_db.store.meta import MetaEntry, MetaPathError
 
-__version__ = "0.1.2"
+__version__ = "0.1.3"
 __all__ = [
     "CypherError",
     "EdgeRecord",

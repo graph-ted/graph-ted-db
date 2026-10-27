@@ -6,17 +6,35 @@ version may include breaking changes; they are called out under **Changed**.
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-10-27
+
+### Upgrading to 0.1.3
+
+- No format change. 0.1.3 reads and writes the same folders as 0.1.2, so
+  machines on 0.1.2 and 0.1.3 can share a folder.
+- Queries that compare vectors of different sizes now fail instead of
+  scoring 0.0. If you see that error, re-embed the graph with one model.
+  See [Upgrading](docs/upgrading.md).
+
 ### Changed
 
+- `vector.similarity.cosine` raises a `CypherError` naming both sizes when
+  the two vectors have different dimensions. It used to return 0.0, which
+  hid a graph that mixed embedding models.
 - Opening an older-format (v2) folder that reads normally is no longer
   reported as a problem. It logs one info line instead of "opened with
-  problems … run `graph-ted-db doctor`": "This graph uses an older storage
-  format. It will be upgraded automatically the next time it's saved. All
-  machines sharing this folder need graph-ted-db 0.1.2 or newer."
+  problems … run `graph-ted-db doctor`": "This graph has files in an older
+  storage format. Each machine upgrades them when it saves with graph-ted-db
+  0.1.2 or newer. Every machine sharing this folder needs 0.1.2 or newer."
   `legacy_v2_files` moved from `GraphStore.problems()` to the new
   `GraphStore.notices()` (also `notices` in `/info`). `info --check` prints
   it on an `info:` line and no longer exits 1 for it alone; `doctor` lists
   it as `info:`. The CLI now prints the library's info lines on stderr.
+
+### Fixed
+
+- `doctor` prints the older-format line once (it was printed on stderr and
+  again in the report).
 
 ## [0.1.2] - 2026-10-26
 

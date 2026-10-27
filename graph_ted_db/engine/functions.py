@@ -196,7 +196,15 @@ def fn_vector_cosine(left: Any, right: Any) -> float | None:
         return None
     a = [float(v) for v in left]
     b = [float(v) for v in right]
-    if not a or not b or len(a) != len(b):
+    if len(a) != len(b):
+        # Same as Neo4j: vectors of different sizes come from different
+        # embedders and have no similarity. A silent 0.0 hid that mix-up.
+        raise CypherError(
+            "vector.similarity.cosine: the vectors have different dimensions "
+            f"({len(a)} and {len(b)}). They were probably made by different "
+            "embedding models; re-embed the graph so every vector has one size."
+        )
+    if not a:
         return 0.0
     dot = sum(x * y for x, y in zip(a, b, strict=True))
     na = sum(x * x for x in a) ** 0.5

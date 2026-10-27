@@ -1,5 +1,12 @@
 # Upgrading
 
+## Upgrading to 0.1.3
+
+- No format change: 0.1.2 and 0.1.3 can share a folder.
+- Comparing vectors of different sizes (`vector.similarity.cosine`) is now
+  an error that names both sizes, instead of a score of 0.0. It means the
+  graph mixes embedding models; re-embed it with one model.
+
 ## Upgrading to 0.1.2
 
 0.1.2 writes on-disk format version 4. Older releases can't read it.
@@ -26,7 +33,7 @@ reads it normally and prints one information line (on stderr from the
 command line, at INFO level from Python's `logging`):
 
 ```text
-graph-ted-db: This graph uses an older storage format. It will be upgraded automatically the next time it's saved. All machines sharing this folder need graph-ted-db 0.1.2 or newer.
+graph-ted-db: This graph has files in an older storage format. Each machine upgrades them when it saves with graph-ted-db 0.1.2 or newer. Every machine sharing this folder needs 0.1.2 or newer.
 ```
 
 This is not an error, and you don't need to run `doctor`. `info --check`

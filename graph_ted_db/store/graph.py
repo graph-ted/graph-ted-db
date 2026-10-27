@@ -98,9 +98,9 @@ from graph_ted_db.store.segments import (
 log = logging.getLogger("graph_ted_db")
 
 OLDER_FORMAT_NOTICE = (
-    "This graph uses an older storage format. It will be upgraded automatically"
-    " the next time it's saved. All machines sharing this folder need"
-    " graph-ted-db 0.1.2 or newer."
+    "This graph has files in an older storage format. Each machine upgrades them"
+    " when it saves with graph-ted-db 0.1.2 or newer. Every machine sharing this"
+    " folder needs 0.1.2 or newer."
 )
 
 # Stores still referenced at process exit. A killed process does not run this;
