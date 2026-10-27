@@ -33,6 +33,7 @@ sdist installs in clean venvs) and post the results on the PR.
 
 ## 1. Cut a release
 
+0. Required: Docs updated for this change (user docs, CHANGELOG, upgrade notes if needed) before the version bump. Docs ship in the same PR as the code.
 1. On `main`, with the full CI green (tests, install matrix, PII scan, docs build;
    the push-to-`main` run, not the trimmed PR run):
    - Set `version` in `pyproject.toml`.
