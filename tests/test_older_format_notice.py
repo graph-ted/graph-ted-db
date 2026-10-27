@@ -16,8 +16,9 @@ from graph_ted_db.store.records import NodeRecord
 
 OTHER = "w0123456789abcdef"
 NOTICE = (
-    "This graph uses an older storage format. It will be upgraded automatically the next"
-    " time it's saved. All machines sharing this folder need graph-ted-db 0.1.2 or newer."
+    "This graph has files in an older storage format. Each machine upgrades them when it"
+    " saves with graph-ted-db 0.1.2 or newer. Every machine sharing this folder needs 0.1.2"
+    " or newer."
 )
 
 
@@ -136,3 +137,13 @@ def test_reading_keeps_format_and_writing_upgrades(tmp_path: Path, write: bool) 
     assert reopened.notices()["older_format"] == (0 if write else 1)
     # Another device's v2 file stays until that device opens the folder.
     assert reopened.notices()["legacy_v2_files"] == 1
+
+
+def test_doctor_prints_the_notice_once(tmp_path: Path, monkeypatch, capsys) -> None:
+    root = tmp_path / "g"
+    _v2_folder(root)
+    monkeypatch.setenv("GRAPH_TED_DB_DATA", str(tmp_path / "d"))
+    assert cli_main(["doctor", str(root)]) == 0
+    out, err = capsys.readouterr()
+    assert (out + err).count(NOTICE) == 1
+    assert f"info: {NOTICE}" in out
