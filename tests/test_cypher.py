@@ -86,7 +86,7 @@ def test_fulltext_query_nodes(tmp_path: Path):
 
 def test_graphiti_search_return_fills_required_fields(tmp_path: Path):
     g = _open(tmp_path)
-    g.make_node(labels=["Entity"], props={"name": "Mavis", "group_id": "default"})
+    g.make_node(labels=["Entity"], props={"name": "Ada", "group_id": "default"})
     rows = g.execute(
         """
         CALL db.index.fulltext.queryNodes("node_name_and_summary", $query, {limit: $limit})
@@ -103,9 +103,9 @@ def test_graphiti_search_return_fills_required_fields(tmp_path: Path):
             labels(n) AS labels,
             properties(n) AS attributes
         """,
-        {"query": "Mavis", "limit": 10},
+        {"query": "Ada", "limit": 10},
     )
-    assert rows[0]["name"] == "Mavis"
+    assert rows[0]["name"] == "Ada"
     assert rows[0]["created_at"]
     assert rows[0]["summary"] == ""
     assert rows[0]["attributes"] != {}

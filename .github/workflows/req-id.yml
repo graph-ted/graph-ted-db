@@ -1,0 +1,46 @@
+name: REQ-ID check
+
+# REQ-100: every PR body names the requirement it builds (REQ-xxx) or the bug it
+# fixes (BUG-xxx), and every REQ-xxx it names must exist in .github/req-ids.txt (copy of the register's REQ headings).
+# Reads the body from the event payload and that one file from the PR head; no secrets.
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  req-id:
+    # The deploy mirror receives this file too; run only on the org repo.
+    if: github.repository_owner == 'graph-ted'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: .github/req-ids.txt
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: PR body carries known REQ-xxx or BUG-xxx
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          ids=$(printf '%s' "$PR_BODY" | grep -oE '\b(REQ-[0-9]{3}|BUG-[0-9]+)\b' | sort -u | tr '\n' ' ' || true)
+          if [ -z "$ids" ]; then
+            echo "::error::PR body has no REQ-xxx or BUG-xxx id. Add a line like 'Requirement: REQ-100' (see REQUIREMENTS.md in graph-ted-orchestrator)."
+            exit 1
+          fi
+          grep -E '^REQ-[0-9]{3}$' .github/req-ids.txt | sort -u > "$RUNNER_TEMP/known.txt"
+          echo "Known REQ ids: $(wc -l < "$RUNNER_TEMP/known.txt")"
+          unknown=""
+          for id in $(printf '%s' "$PR_BODY" | grep -oE '\bREQ-[0-9]+\b' | sort -u || true); do
+            grep -qx "$id" "$RUNNER_TEMP/known.txt" || unknown="$unknown $id"
+          done
+          if [ -n "$unknown" ]; then
+            echo "::error::Unknown REQ id(s):$unknown. Use an ID from the register, or add the new REQ to .github/req-ids.txt first."
+            exit 1
+          fi
+          echo "Found: $ids"

@@ -1,3 +1,6 @@
+Requirement: REQ-xxx / BUG-xxx
+<!-- Required: the REQ ID from REQUIREMENTS.md (graph-ted-orchestrator) this PR builds, or BUG-<n> for a fix. The req-id check fails without one, or if the REQ ID is not in .github/req-ids.txt. -->
+
 ## Summary
 
 <!-- What does this change and why? -->

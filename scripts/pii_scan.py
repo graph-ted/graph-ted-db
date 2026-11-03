@@ -13,9 +13,15 @@ file so the scan can look for them locally without publishing them:
 Findings print as ``path:line: rule``. A local term is reported by its index,
 never by its value, so CI logs and pasted output stay clean.
 
-    python scripts/pii_scan.py            # tracked files
+    python scripts/pii_scan.py            # tracked files of the repo you are in
     python scripts/pii_scan.py --history  # also every commit message, author, and patch
-    python scripts/pii_scan.py FILE ...   # just these files
+    python scripts/pii_scan.py FILE ...   # just these files (relative to the working
+                                          # directory, or absolute)
+    python scripts/pii_scan.py --root DIR # tracked files of another repository
+
+Every run prints how many files it scanned. Naming files or a repository that
+yields 0 scanned files is an error (exit 2), so a wrong path can't pass as clean.
+The .pii-terms.local file is always read from this script's own checkout.
 """
 
 from __future__ import annotations
@@ -126,24 +132,52 @@ def tracked_files(root: Path = ROOT) -> list[str]:
     return [p for p in proc.stdout.decode().split("\0") if p]
 
 
-def scan_files(paths: list[str], rules, root: Path = ROOT) -> list[Finding]:
+def scan_paths(
+    paths: list[str], rules, root: Path = ROOT
+) -> tuple[list[Finding], int]:
+    """Scan ``paths`` and return (findings, number of files scanned).
+
+    A relative path is resolved against ``root``; an absolute path is used as is.
+    Findings show the path relative to ``root`` when the file is inside it.
+    """
     findings: list[Finding] = []
+    scanned = 0
+    root = root.resolve()
     for rel in paths:
-        norm = rel.replace(os.sep, "/")
+        p = Path(rel)
+        if not p.is_absolute():
+            p = root / p
+        p = p.resolve()
+        try:
+            norm = p.relative_to(root).as_posix()
+        except ValueError:
+            norm = p.as_posix()
         if norm in SELF_PATHS and not any(r[0].startswith("local-") for r in rules):
             continue
-        p = root / rel
         if p.suffix.lower() in SKIP_SUFFIXES or not p.is_file():
             continue
         try:
             text = p.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError):
             continue
+        scanned += 1
         active = (
             rules if norm not in SELF_PATHS else [r for r in rules if r[0].startswith("local-")]
         )
         findings.extend(scan_text(norm, text, active))
-    return findings
+    return findings, scanned
+
+
+def scan_files(paths: list[str], rules, root: Path = ROOT) -> list[Finding]:
+    return scan_paths(paths, rules, root)[0]
+
+
+def repo_root(start: Path) -> Path:
+    """The git top level containing ``start``, or ``start`` itself outside git."""
+    proc = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"], cwd=start, capture_output=True, text=True
+    )
+    return Path(proc.stdout.strip()) if proc.returncode == 0 else start
 
 
 def scan_history(rules, root: Path = ROOT) -> list[Finding]:
@@ -174,24 +208,38 @@ def scan_history(rules, root: Path = ROOT) -> list[Finding]:
     return sorted(set(findings), key=lambda f: (f.path, f.rule))
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, cwd: Path | None = None) -> int:
     parser = argparse.ArgumentParser(description="Flag personal data in the repository.")
     parser.add_argument("files", nargs="*")
     parser.add_argument("--history", action="store_true", help="also scan every commit")
+    parser.add_argument(
+        "--root",
+        type=Path,
+        help="repository to scan (default: the git repo of the working directory)",
+    )
     args = parser.parse_args(argv)
+    cwd = (cwd or Path.cwd()).resolve()
+    root = (cwd / args.root).resolve() if args.root else repo_root(cwd)
     rules = GENERIC_RULES + load_local_rules()
-    files = args.files or tracked_files()
-    findings = scan_files(files, rules)
+    if args.files:
+        # Named files are relative to the working directory, not to this script.
+        files = [str((cwd / f).resolve()) for f in args.files]
+    else:
+        files = tracked_files(root)
+    findings, scanned = scan_paths(files, rules, root)
     if args.history:
-        findings.extend(scan_history(rules))
+        findings.extend(scan_history(rules, root=root))
     for f in findings:
         print(f)
     local_count = sum(1 for r in rules if r[0].startswith("local-"))
     print(
-        f"pii_scan: {len(findings)} finding(s); {len(GENERIC_RULES)} generic rules, "
-        f"{local_count} local rules",
+        f"pii_scan: {len(findings)} finding(s) in {scanned} file(s) scanned; "
+        f"{len(GENERIC_RULES)} generic rules, {local_count} local rules",
         file=sys.stderr,
     )
+    if scanned == 0:
+        print("pii_scan: error: 0 files scanned; check the paths or --root", file=sys.stderr)
+        return 2
     return 1 if findings else 0
 
 
