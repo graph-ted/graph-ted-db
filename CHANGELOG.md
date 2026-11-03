@@ -6,6 +6,12 @@ version may include breaking changes; they are called out under **Changed**.
 
 ## [Unreleased]
 
+### Added
+
+- `GraphTedDbDriver.build_indices_and_constraints(delete_existing=False)`.
+  graphiti-core 0.31 made it abstract, so the driver could not be constructed
+  on 0.31.x. It does nothing: the engine already ignored Graphiti's index DDL.
+
 ## [0.1.3] - 2026-10-27
 
 ### Upgrading to 0.1.3
