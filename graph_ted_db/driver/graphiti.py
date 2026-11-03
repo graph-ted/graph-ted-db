@@ -187,6 +187,19 @@ class GraphTedDbDriver(GraphDriver):
 
         return _noop()
 
+    async def build_indices_and_constraints(self, delete_existing: bool = False) -> None:
+        """No-op: graph-ted-db has no schema indices to build.
+
+        graphiti-core 0.31 made this method abstract on ``GraphDriver``. Before
+        that, Graphiti sent its Neo4j ``CREATE INDEX`` statements here and the
+        engine accepted and ignored them, so doing nothing keeps the same result
+        without a round trip per statement. ``delete_existing`` only calls
+        ``delete_all_indexes``, which is also a no-op.
+        """
+        if delete_existing:
+            await self.delete_all_indexes()
+        return None
+
     async def verify_connectivity(self) -> None:
         if self._http:
             try:
