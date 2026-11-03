@@ -11,7 +11,7 @@ Set environment variables, or copy `sync_test.local.env.example` to `sync_test.l
 | Variable | Meaning |
 |---|---|
 | `GTDB_SYNC_REMOTE` | rclone remote spec (`name:`) or a local directory. Required. |
-| `GTDB_SYNC_FOLDER` | Dedicated test folder under the remote. Default `graph-ted-sync-test`. Every remote path starts here. |
+| `GTDB_SYNC_FOLDER` | Dedicated test folder under the remote. Required (no default). Every remote path starts here. |
 | `GTDB_SYNC_WORK` | Local scratch root (writer folders, bisync state). Default: a new temp dir. |
 | `GTDB_SYNC_RESULTS` | Results JSON. Default `<work>/results`. |
 | `GTDB_SYNC_RCLONE` | rclone binary. Default `rclone`. |
@@ -33,7 +33,7 @@ On one machine, with a local directory as the remote:
 
 ```
 python scripts/sync_test/sync_harness.py list
-GTDB_SYNC_REMOTE=/tmp/gtdb-remote GTDB_SYNC_FOLDER=graph-ted-sync-test \
+GTDB_SYNC_REMOTE=/tmp/gtdb-remote GTDB_SYNC_FOLDER=gtdb-sync-test \
   python scripts/sync_test/sync_harness.py run s2 s4
 ```
 

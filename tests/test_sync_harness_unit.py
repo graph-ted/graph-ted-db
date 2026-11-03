@@ -25,14 +25,14 @@ def _harness():
 def _writer(mod, tmp_path: Path):
     cfg = mod.Config(
         remote="remote:",
-        folder="graph-ted-sync-test",
+        folder="gtdb-sync-test",
         work=tmp_path / "work",
         results=tmp_path / "results",
         rclone="rclone",
         extra_flags=[],
         run_id="run-test",
     )
-    writer = mod.Writer(cfg, "s2", "A", "remote:graph-ted-sync-test/run-test/s2/A")
+    writer = mod.Writer(cfg, "s2", "A", "remote:gtdb-sync-test/run-test/s2/A")
     writer.synced_once = True
     return writer
 
@@ -198,3 +198,27 @@ def test_rc7_lockout_runs_one_resync_and_stays_a_failure(
     assert len(force_logs) == 1
     assert force_logs[0].name == "run-test-0003-force.log"
     assert "size changed from 637 to 956" in (writer.logdir / names[0]).read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("value", [None, "", " / "])
+def test_sync_folder_is_required(monkeypatch: pytest.MonkeyPatch, value: str | None) -> None:
+    mod = _harness()
+    monkeypatch.setattr(mod, "_load_local_env", lambda: None)
+    monkeypatch.setenv("GTDB_SYNC_REMOTE", "/tmp/gtdb-remote")
+    if value is None:
+        monkeypatch.delenv("GTDB_SYNC_FOLDER", raising=False)
+    else:
+        monkeypatch.setenv("GTDB_SYNC_FOLDER", value)
+    with pytest.raises(SystemExit, match="GTDB_SYNC_FOLDER is not set"):
+        mod.Config.from_env()
+
+
+def test_sync_folder_from_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    mod = _harness()
+    monkeypatch.setattr(mod, "_load_local_env", lambda: None)
+    monkeypatch.setenv("GTDB_SYNC_REMOTE", "remote:")
+    monkeypatch.setenv("GTDB_SYNC_FOLDER", "/gtdb-sync-test/")
+    monkeypatch.setenv("GTDB_SYNC_WORK", str(tmp_path))
+    cfg = mod.Config.from_env()
+    assert cfg.folder == "gtdb-sync-test"
+    assert cfg.remote_path("s2").startswith("remote:gtdb-sync-test/run-")
