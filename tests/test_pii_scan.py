@@ -158,3 +158,39 @@ def test_store_files_and_writer_ids_have_no_pii(tmp_path: Path) -> None:
             findings += pii.scan_text(path.name + " " + path.name, text, pii.GENERIC_RULES)
             findings += pii.scan_text("name", path.name, pii.GENERIC_RULES)
     assert findings == []
+
+
+def _outside_repo(tmp_path: Path) -> Path:
+    repo = tmp_path / "other"
+    (repo / "docs").mkdir(parents=True)
+    (repo / "docs" / "notes.md").write_text("clean line\ncd /home/jdoe/projects\n")
+    _git(repo, "init", "-q")
+    _git(repo, "add", "-A")
+    return repo
+
+
+def test_named_path_outside_this_repo_is_scanned(tmp_path, monkeypatch, capsys) -> None:
+    """Regression: a relative path from another repo used to resolve against this
+    script's repo, scan 0 files, and report "0 findings"."""
+    repo = _outside_repo(tmp_path)
+    monkeypatch.delenv("GTDB_PII_TERMS", raising=False)
+    monkeypatch.delenv("GTDB_PII_REMOTES", raising=False)
+    for arg in ("docs/notes.md", str(repo / "docs" / "notes.md")):
+        assert pii.main([arg], cwd=repo) == 1
+        out, err = capsys.readouterr()
+        assert "docs/notes.md:2: home-path-unix" in out
+        assert "in 1 file(s) scanned" in err
+
+
+def test_root_scans_another_repos_tracked_files(tmp_path, monkeypatch, capsys) -> None:
+    repo = _outside_repo(tmp_path)
+    monkeypatch.delenv("GTDB_PII_TERMS", raising=False)
+    monkeypatch.delenv("GTDB_PII_REMOTES", raising=False)
+    assert pii.main(["--root", str(repo)], cwd=tmp_path) == 1
+    assert "in 1 file(s) scanned" in capsys.readouterr().err
+
+
+def test_zero_files_scanned_is_an_error(tmp_path, capsys) -> None:
+    assert pii.main(["does/not/exist.md"], cwd=tmp_path) == 2
+    err = capsys.readouterr().err
+    assert "in 0 file(s) scanned" in err and "error: 0 files scanned" in err
