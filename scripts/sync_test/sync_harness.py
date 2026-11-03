@@ -9,7 +9,7 @@ variables or from an untracked ``sync_test.local.env`` next to this file
 (gitignored):
 
     GTDB_SYNC_REMOTE   rclone remote spec ("name:" or a local directory). Required.
-    GTDB_SYNC_FOLDER   dedicated test folder under the remote (default graph-ted-sync-test)
+    GTDB_SYNC_FOLDER   dedicated test folder under the remote. Required.
     GTDB_SYNC_WORK     local scratch root for writer folders and bisync state
     GTDB_SYNC_RESULTS  where results JSON and logs go (default <work>/results)
     GTDB_SYNC_RCLONE   rclone binary (default "rclone")
@@ -178,7 +178,12 @@ class Config:
         remote = os.environ.get("GTDB_SYNC_REMOTE", "").strip()
         if not remote:
             raise SystemExit("GTDB_SYNC_REMOTE is not set (env or sync_test.local.env)")
-        folder = os.environ.get("GTDB_SYNC_FOLDER", "graph-ted-sync-test").strip("/")
+        folder = os.environ.get("GTDB_SYNC_FOLDER", "").strip().strip("/")
+        if not folder:
+            raise SystemExit(
+                "GTDB_SYNC_FOLDER is not set (env or sync_test.local.env): name the"
+                " dedicated test folder under the remote; every remote path starts there"
+            )
         work = Path(os.environ.get("GTDB_SYNC_WORK") or tempfile.mkdtemp(prefix="gtdb-sync-"))
         results = Path(os.environ.get("GTDB_SYNC_RESULTS") or (work / "results"))
         rclone = os.environ.get("GTDB_SYNC_RCLONE", "rclone")

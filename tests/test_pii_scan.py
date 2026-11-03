@@ -57,7 +57,7 @@ def test_generic_rules_flag(text: str, rule: str) -> None:
         "contact developer.agent@graph-ted.com",
         "cd /home/runner/work and $HOME/.cache",
         r"C:\Users\<user>\graph",
-        "rclone bisync ./graph $GTDB_SYNC_REMOTE:graph-ted-sync-test/store",
+        "rclone bisync ./graph $GTDB_SYNC_REMOTE:gtdb-sync-test/store",
     ],
 )
 def test_generic_rules_allow(text: str) -> None:
@@ -74,7 +74,7 @@ def test_local_terms_from_env_are_reported_by_index_only() -> None:
     )
     findings = pii.scan_text(
         "notes.md",
-        "by jane placeholder\nrclone lsf examplecloud:graph-ted-sync-test\nexamplecloudy: fine\n",
+        "by jane placeholder\nrclone lsf examplecloud:gtdb-sync-test\nexamplecloudy: fine\n",
         rules,
     )
     assert [(f.line, f.rule) for f in findings] == [(1, "local-term#1"), (2, "local-remote#1")]
