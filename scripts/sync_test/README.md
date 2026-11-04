@@ -57,7 +57,14 @@ python scripts/sync_test/sync_harness.py run s2 s5      # some
 | s8 | Conflict-copy file names from several sync clients (no rclone) |
 | s9 | `doctor` on a copy where edges arrived before their nodes (`GTDB_SYNC_DOCTOR_FIX=1` for `--fix`) |
 | s10 | Both writers touch most shards between syncs; bisync's delete safety check stops one side until `--force` |
+| s11 | One published nodes file is deleted on the remote; both writers sync |
 
 Record ids and contents are deterministic. Each writer journals every committed record; after the replicas converge the check opens a copy of each replica and reports records lost, lost but still on disk, stale (an older version won), corrupt (content no writer wrote), unexpected, skipped lines, `doctor` output, and whether both replicas are identical.
+
+`run` exits 1 and prints `FAILED: <scenarios>` when any scenario errors or its verdict is not clean, so a scheduled run turns red; the results JSON lists the same names under `failed`. It exits 0 only when every scenario it ran is clean.
+
+s6a: the journal line is written after the commit, so a SIGKILL can leave one committed transaction (up to 200 records) that no journal lists. The s6a verdict allows that many unexpected records per killed trial, only from that trial's own records, and only as whole transactions. Any lost, stale, corrupt or resurrected record, any other unexpected record, or replicas that differ still fail it.
+
+s8: a publish writes one bundle per directory, `<writer>.<seq>.jsonl`. s8 renames that bundle to each client's conflict-copy name, reopens the store, and fails unless the record is still visible under every name.
 
 Delete the local work directory afterwards. The remote test folder is left in place.
