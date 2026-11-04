@@ -6,6 +6,20 @@ version may include breaking changes; they are called out under **Changed**.
 
 ## [Unreleased]
 
+### Fixed
+
+- A record file deleted from a synced graph folder (by the sync service, a
+  cleanup or dedupe tool, or by hand) is no longer lost on every device
+  (BUG-007). The device that published it keeps a local copy and puts the
+  file back under the same name with the same bytes on its next open, or
+  within a few seconds while the graph is open. A device never reuses the
+  name of a file it published, and files replaced by compaction are not
+  brought back. `info --check` and `doctor` report restored files. If
+  `graph.json` or all of a device's files are gone, nothing is restored and
+  it is reported; `doctor --restore` forces it. No format change: 0.1.4
+  and older read these folders as before. Files of a device that no longer
+  writes to the folder are not restored.
+
 ## [0.1.4] - 2026-11-03
 
 ### Upgrading to 0.1.4

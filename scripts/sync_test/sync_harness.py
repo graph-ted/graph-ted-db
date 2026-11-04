@@ -112,9 +112,7 @@ def _stream_scrubbed(
     A kill while the process is running must not leave an upload URL on disk.
     Lines are scrubbed before they are written, not after the process exits.
     """
-    proc = subprocess.Popen(
-        cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
-    )
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     parts: list[str] = []
     try:
         assert proc.stdout is not None
@@ -424,9 +422,7 @@ class Writer:
             if not path.exists():
                 return path
 
-    def _run_logged(
-        self, cmd: list[str], *, phase: str, timeout: float
-    ) -> tuple[int, Path, str]:
+    def _run_logged(self, cmd: list[str], *, phase: str, timeout: float) -> tuple[int, Path, str]:
         log_path = self._log_path(phase)
         with self._store_lock():
             rc, clean = _stream_scrubbed(cmd, log_path, timeout)
@@ -1425,41 +1421,195 @@ def sc10_delete_safety(
     return finish(name, a, b, notes, converge_rounds=1)
 
 
+def _remote_files(cfg: Config, w: Writer, prefix: str = "nodes/") -> list[str]:
+    listing = subprocess.run(
+        [cfg.rclone, "lsf", "-R", "--files-only", w.remote],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.splitlines()
+    return sorted(p for p in listing if p.startswith(prefix) and p.endswith(".jsonl"))
+
+
+def _reopen(w: Writer, *, compact: bool = False) -> dict[str, int]:
+    """Open and close this writer's store, as the app does on start (restore pass)."""
+    from graph_ted_db.store import GraphStore
+
+    store = GraphStore.open(w.store, data_dir=w.data)
+    try:
+        if compact:
+            store.compact()
+        counts = {**store.notices(), **store.problems()}
+        return {
+            k: v
+            for k, v in counts.items()
+            if k in ("restored_own_files", "own_files_changed", "own_restore_held")
+        }
+    finally:
+        store.close()
+
+
+def _writer_id(w: Writer) -> str:
+    from graph_ted_db.store import GraphStore
+
+    store = GraphStore.open(w.store, data_dir=w.data)
+    try:
+        return store.writer_id
+    finally:
+        store.close()
+
+
+def _digests(w: Writer) -> dict[str, str]:
+    import hashlib
+
+    return {
+        p.relative_to(w.store).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
+        for p in sorted(w.store.rglob("*.jsonl"))
+        if p.is_file()
+    }
+
+
+def _drop_remote(cfg: Config, w: Writer, rel: str) -> None:
+    subprocess.run([cfg.rclone, "deletefile", f"{w.remote}/{rel}"], check=True, capture_output=True)
+
+
+def _propagate(a: Writer, b: Writer, rounds: int = 2) -> None:
+    for _ in range(rounds):
+        b.sync()
+        a.sync()
+
+
+def _result(
+    name: str, checks: list[dict[str, Any]], notes: dict[str, Any], ok: bool = True
+) -> dict[str, Any]:
+    v = verdict(checks)
+    if not ok:
+        v["clean"] = False
+        v["scenario_check_failed"] = True
+    return {
+        "scenario": name,
+        "mode": os.environ.get("GTDB_SYNC_MODE", "bisync"),
+        "checks": checks,
+        "verdict": v,
+        "notes": notes,
+    }
+
+
 def sc11_drop_file(cfg: Config, name: str = "s11_drop_file") -> dict[str, Any]:
-    """A sync client deletes (or dedupes away) one record file on the remote."""
+    """A sync client deletes (or dedupes away) one record file on the remote.
+
+    bisync propagates the delete to both devices. The owner puts the file back
+    (same name, same bytes) on its next open or publisher tick (BUG-007), and
+    the next syncs carry it to every replica: 0 lost.
+    """
     a, b = setup_pair(cfg, name)
     a.write([node_op(name, "A", i) for i in range(200)], batch=50)
     b.write([node_op(name, "B", i) for i in range(200)], batch=50)
     for _ in range(2):
         a.sync()
         b.sync()
-    listing = subprocess.run(
-        [cfg.rclone, "lsf", "-R", "--files-only", a.remote],
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout.splitlines()
-    victims = sorted(p for p in listing if p.startswith("nodes/") and p.endswith(".jsonl"))
+    victims = _remote_files(cfg, a)
     victim = victims[len(victims) // 2]
-    subprocess.run(
-        [cfg.rclone, "deletefile", f"{a.remote}/{victim}"], check=True, capture_output=True
-    )
+    _drop_remote(cfg, a, victim)
+    _propagate(a, b)
+    restored = {"A": _reopen(a), "B": _reopen(b)}
     for _ in range(2):
-        b.sync()
         a.sync()
+        b.sync()
     entries = read_journals(a, b)
     checks = [check_replica(a, entries), check_replica(b, entries)]
     return {
-        "scenario": name,
-        "mode": os.environ.get("GTDB_SYNC_MODE", "bisync"),
+        **_result(
+            name,
+            checks,
+            {
+                "desc": "200+200 nodes synced, one node file deleted on the remote, both devices"
+                " sync twice, reopen (restore pass), then sync twice. Expect 0 lost.",
+                "restore": restored,
+            },
+        ),
         "dropped": victim.split("/", 1)[0] + "/<file>",
-        "checks": checks,
-        "verdict": verdict(checks),
-        "notes": {
-            "desc": "200+200 nodes synced, then one node file is deleted on the remote and"
-            " both devices sync twice. bisync propagates the delete; overwrite mode re-uploads."
-        },
     }
+
+
+def sc11b_drop_newest(cfg: Config, name: str = "s11b_drop_newest") -> dict[str, Any]:
+    """The newest own file is deleted by sync, then the writer publishes again.
+
+    The new publish must not reuse the deleted name with other bytes: a name
+    that was ever published keeps its bytes on every replica.
+    """
+    a, b = setup_pair(cfg, name)
+    a.write([node_op(name, "A", i) for i in range(150)], batch=50)
+    a.sync()
+    b.sync()
+    wid = _writer_id(a)
+    seen = _digests(a)
+    own = [p for p in _remote_files(cfg, a) if wid in p]
+    newest = max(own, key=lambda p: p.rsplit("/", 1)[-1])
+    _drop_remote(cfg, a, newest)
+    _propagate(a, b)
+    a.write([node_op(name, "A", 1000 + i) for i in range(50)], batch=50)
+    for _ in range(2):
+        a.sync()
+        b.sync()
+    after = {"A": _digests(a), "B": _digests(b)}
+    reused = sorted(
+        {rel for d in after.values() for rel, h in d.items() if rel in seen and seen[rel] != h}
+    )
+    entries = read_journals(a, b)
+    checks = [check_replica(a, entries), check_replica(b, entries)]
+    return _result(
+        name,
+        checks,
+        {
+            "desc": "A seals 3 bundles, the newest is deleted on the remote and propagated,"
+            " then A writes again. Expect 0 lost and no name reused with other bytes.",
+            "names_reused_with_other_bytes": len(reused),
+            "newest_back": all(newest in d for d in after.values()),
+        },
+        ok=not reused,
+    )
+
+
+def sc11c_compact_after_drop(cfg: Config, name: str = "s11c_compact_after_drop") -> dict[str, Any]:
+    """One own file is deleted by sync, then the owner compacts.
+
+    Nothing is lost, and files that compaction replaced are not brought back.
+    """
+    a, b = setup_pair(cfg, name)
+    a.write([node_op(name, "A", i) for i in range(200)], batch=50)
+    a.sync()
+    b.sync()
+    wid = _writer_id(a)
+    own_before = [p for p in _remote_files(cfg, a) if wid in p]
+    victim = own_before[len(own_before) // 2]
+    _drop_remote(cfg, a, victim)
+    _propagate(a, b)
+    restore = _reopen(a, compact=True)
+    for _ in range(2):
+        a.sync()
+        b.sync()
+    _reopen(a)  # a later open must not resurrect what compaction replaced
+    for _ in range(2):
+        a.sync()
+        b.sync()
+    own_after = [p for p in _remote_files(cfg, a) if wid in p]
+    resurrected = sorted(set(own_before) & set(own_after))
+    entries = read_journals(a, b)
+    checks = [check_replica(a, entries), check_replica(b, entries)]
+    return _result(
+        name,
+        checks,
+        {
+            "desc": "A seals 4 bundles, one is deleted on the remote and propagated, A reopens"
+            " and compacts, then reopens again. Expect 0 lost and no replaced file back.",
+            "restore": restore,
+            "own_files_before": len(own_before),
+            "own_files_after": len(own_after),
+            "resurrected": len(resurrected),
+        },
+        ok=not resurrected,
+    )
 
 
 SCENARIOS = {
@@ -1475,6 +1625,8 @@ SCENARIOS = {
     "s9": sc9_doctor_partial,
     "s10": sc10_delete_safety,
     "s11": sc11_drop_file,
+    "s11b": sc11b_drop_newest,
+    "s11c": sc11c_compact_after_drop,
 }
 
 
