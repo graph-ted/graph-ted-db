@@ -48,6 +48,11 @@ def active_dir_for(graph_id: str, data_dir: Path | None = None) -> Path:
     return (data_dir or default_data_dir()) / graph_id / "active"
 
 
+def ledger_dir_for(graph_id: str, data_dir: Path | None = None) -> Path:
+    """This writer's publish ledger and retained copies. Never synced."""
+    return (data_dir or default_data_dir()) / graph_id / "published"
+
+
 def stage_dir_for(graph_id: str, data_dir: Path | None = None) -> Path:
     """Temp files for sealing a segment. Never stored in the synced folder."""
     return (data_dir or default_data_dir()) / graph_id / "stage"

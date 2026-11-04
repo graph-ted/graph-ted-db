@@ -202,6 +202,16 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
 
+    doctor_p.add_argument(
+        "--restore",
+        action="store_true",
+        help=(
+            "put back this device's own record files that are missing even when graph.json "
+            "is gone or all of them are missing (normally held, in case the folder was "
+            "deleted or moved on purpose)"
+        ),
+    )
+
     cypher_p = sub.add_parser(
         "cypher", help="run an openCypher query (supported subset; see docs/cypher.md)"
     )
@@ -352,7 +362,7 @@ def _dispatch(args: argparse.Namespace) -> int:
         print(f"compacted {args.path}")
         return 0
     if args.command == "doctor":
-        report = store.doctor(fix=args.fix)
+        report = store.doctor(fix=args.fix, restore=args.restore)
         print(report.summary(), end="")
         return 0
     if args.command == "cypher":
