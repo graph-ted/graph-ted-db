@@ -7,7 +7,7 @@
 - **Clocks.** Device clocks decide which of two truly simultaneous edits wins. The result is deterministic, but a badly skewed clock can win.
 - **Publish lag.** New records sit in this device's local app data until they are sealed (by default: every 1 MiB of a directory, every 2 seconds while writes continue, or 0.5 seconds after the last write; immediately on close). Another device cannot see them before that, and then still waits for sync. See [Sealed bundles](format.md#sealed-bundles).
 - **History.** Each seal adds one file for the directory, not one file per shard. `compact()` (and automatic compaction after 4 bundles in that directory) republishes this writer's winners and deletes its older bundles. Another writer's files are left alone. A busy writer stays at a handful of files per directory.
-- **Deleted writer files.** A writer's file deleted on the remote loses that writer's unsynced records.
+- **Deleted record files.** If a record file in the graph folder is deleted on any device or on the remote (by hand, by a cleanup or dedupe tool, or by the sync service), the sync tool deletes it on every device, and every record in that file is lost on every device, including records that were synced long ago. graph-ted-db does not restore the file and does not report the loss: the graph opens normally without those records. Do not delete, move or rename files inside the graph folder. Keep deleted files recoverable: with rclone, use the backup flags below; OneDrive and Dropbox keep deleted files in their recycle bin or deleted-files list for a limited time. To recover, copy the deleted file back into the same directory of the graph folder and let the sync tool upload it.
 - **OneDrive Files On-Demand.** Keep the graph folder **Always keep on this device**.
 - **Versions.** Run the same graph-ted-db release on every device. A folder written by a newer format can't be opened by an older release; see [Upgrading](upgrading.md).
 
@@ -24,6 +24,7 @@ rclone bisync ./my-graph remote:my-graph --resilient --recover --max-lock 2m
 - `--max-lock 2m` lets a lock file left behind by a killed run expire after two minutes.
 - Keep the default `--conflict-resolve none`. bisync then keeps both versions of a file that changed on both sides (for example `00.jsonl.conflict1` and `00.jsonl.conflict2`), and graph-ted-db reads and merges them. Record bundles are immutable, so a normal two-writer run should not fork them.
 - Never use `--conflict-loser delete`. It deletes the losing copy, and with it every record that only that copy had.
+- Add `--backup-dir1 <dir> --backup-dir2 <dir>`, with both directories outside the graph folder (the second one on the remote). When bisync deletes or replaces a file on one side, it moves the old file there instead, so a deleted record file can be copied back.
 
 ### Recovering a stopped sync
 
