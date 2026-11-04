@@ -6,11 +6,30 @@ version may include breaking changes; they are called out under **Changed**.
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-11-03
+
+### Upgrading to 0.1.4
+
+- No format change. 0.1.4 reads and writes the same folders as 0.1.2 and
+  0.1.3, so machines on any of them can share a folder.
+
 ### Added
 
 - `GraphTedDbDriver.build_indices_and_constraints(delete_existing=False)`.
   graphiti-core 0.31 made it abstract, so the driver could not be constructed
   on 0.31.x. It does nothing: the engine already ignored Graphiti's index DDL.
+
+### Fixed
+
+- A sync client's conflict copy of a record bundle is read and merged again
+  whatever name the client gives it, as in 0.1.0 and 0.1.1. In 0.1.2 and
+  0.1.3 only copies with the suffix after `.jsonl` were read reliably
+  (rclone bisync's `.jsonl.conflict1`, `.jsonl..path1`). Copies named with
+  the suffix before `.jsonl` could stay hidden: the OneDrive client for
+  Windows (`-DESKTOP-ABC123.jsonl`), abraunegg onedrive
+  (`-hostname-safeBackup-0001.jsonl`), Dropbox (` (conflicted copy).jsonl`)
+  and rclone bisync with `--suffix-keep-extension` (`.conflict1.jsonl`).
+  `*.tmp` and `*.partial` files are still ignored.
 
 ## [0.1.3] - 2026-10-27
 
@@ -183,7 +202,9 @@ First public release.
   or over HTTP.
 - Documentation site with `llms.txt` and `llms-full.txt`.
 
-[Unreleased]: https://github.com/graph-ted/graph-ted-db/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/graph-ted/graph-ted-db/compare/v0.1.4...HEAD
+[0.1.4]: https://github.com/graph-ted/graph-ted-db/compare/v0.1.3...v0.1.4
+[0.1.3]: https://github.com/graph-ted/graph-ted-db/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/graph-ted/graph-ted-db/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/graph-ted/graph-ted-db/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/graph-ted/graph-ted-db/releases/tag/v0.1.0
