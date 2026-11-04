@@ -176,6 +176,7 @@ def test_rc7_lockout_runs_one_resync_and_stays_a_failure(
     combined = "\n".join(path.read_text(encoding="utf-8") for path in writer.logdir.glob("*.log"))
     assert "SECRETVALUE" not in combined
     assert "size changed from 637 to 956" in writer.sync_log[0]["out"]
+
     # A later phase gets its own file. It does not reopen the lockout log.
     class OkProc:
         def __init__(self, cmd, **_kwargs):
@@ -222,3 +223,100 @@ def test_sync_folder_from_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -
     cfg = mod.Config.from_env()
     assert cfg.folder == "gtdb-sync-test"
     assert cfg.remote_path("s2").startswith("remote:gtdb-sync-test/run-")
+
+
+def test_failed_scenarios_counts_errors_missing_and_unclean_verdicts() -> None:
+    mod = _harness()
+    results = [
+        {"scenario": "s1_sequential", "verdict": {"clean": True}},
+        {"scenario": "s8_native_names", "results": {}, "verdict": {"clean": False}},
+        {"scenario": "s11", "error": "RuntimeError('boom')"},
+        {"scenario": "s9_doctor_partial"},
+    ]
+    assert mod.failed_scenarios(results) == ["s8_native_names", "s11", "s9_doctor_partial"]
+    assert mod.failed_scenarios(results[:1]) == []
+
+
+def test_run_exits_non_zero_when_a_scenario_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    mod = _harness()
+    monkeypatch.setenv("GTDB_SYNC_REMOTE", "remote:")
+    monkeypatch.setenv("GTDB_SYNC_FOLDER", "gtdb-sync-test")
+    monkeypatch.setenv("GTDB_SYNC_WORK", str(tmp_path / "work"))
+    monkeypatch.setenv("GTDB_SYNC_RESULTS", str(tmp_path / "results"))
+    monkeypatch.setenv("GTDB_SYNC_RCLONE", "true")
+    monkeypatch.setitem(
+        mod.SCENARIOS, "s1", lambda cfg: {"scenario": "s1", "verdict": {"clean": True}}
+    )
+    monkeypatch.setitem(
+        mod.SCENARIOS, "s2", lambda cfg: {"scenario": "s2", "verdict": {"clean": False}}
+    )
+    assert mod.main(["run", "s1"]) == 0
+    assert mod.main(["run", "s1", "s2"]) == 1
+
+
+def _s6a_base(**over):
+    v = {
+        "lost": 0,
+        "lost_but_on_disk": 0,
+        "stale_version": 0,
+        "corrupt": 0,
+        "unexpected": 0,
+        "deleted_but_live": 0,
+        "skipped_lines": 0,
+        "all_open": True,
+        "replicas_identical": True,
+        "clean": False,
+    }
+    v.update(over)
+    return v
+
+
+def test_s6a_allows_one_unjournaled_transaction_per_trial() -> None:
+    mod = _harness()
+    name = "s6a_kill_writer"
+    keys = {("node", mod.rid(name, "A", "node", t * 10000 + i)) for t in (0, 3) for i in range(200)}
+    allowance = mod.s6a_allowance(name, 6, [keys, keys])
+    assert allowance["beyond_allowance"] == 0
+    assert allowance["per_replica"][0]["unexpected_per_trial"] == [200, 0, 0, 200, 0, 0]
+    notes = {"A_whole_transactions": True, "B_whole_transactions": True}
+    v = mod.s6a_verdict(_s6a_base(unexpected=400), allowance, notes)
+    assert v["clean"] is True
+    assert v["unexpected_raw"] == 400
+
+
+def test_s6a_still_fails_on_loss_and_on_more_than_one_transaction() -> None:
+    mod = _harness()
+    name = "s6a_kill_writer"
+    notes = {"A_whole_transactions": True, "B_whole_transactions": True}
+    none = mod.s6a_allowance(name, 6, [set(), set()])
+    assert mod.s6a_verdict(_s6a_base(lost=1), none, notes)["clean"] is False
+    assert mod.s6a_verdict(_s6a_base(corrupt=1), none, notes)["clean"] is False
+    assert mod.s6a_verdict(_s6a_base(replicas_identical=False), none, notes)["clean"] is False
+    partial = {"A_whole_transactions": False, "B_whole_transactions": True}
+    assert mod.s6a_verdict(_s6a_base(), none, partial)["clean"] is False
+    two = {("node", mod.rid(name, "A", "node", i)) for i in range(400)}
+    stray = {("node", mod.rid(name, "B", "node", 0))}
+    for keys in (two, stray):
+        allowance = mod.s6a_allowance(name, 6, [keys, keys])
+        assert allowance["beyond_allowance"] > 0
+        assert mod.s6a_verdict(_s6a_base(unexpected=len(keys)), allowance, notes)["clean"] is False
+
+
+def test_s8_renames_the_published_bundle_and_reports_each_name(tmp_path: Path) -> None:
+    mod = _harness()
+    writer = _writer(mod, tmp_path)
+    res = mod.sc8_native_conflict_names(writer.cfg)
+    assert set(res["results"]) == {
+        "windows_client",
+        "abraunegg_safebackup",
+        "dropbox_style",
+        "rclone_bisync_default",
+        "rclone_bisync_legacy",
+        "rclone_bisync_keep_ext",
+    }
+    assert res["results"]["rclone_bisync_default"]["record_visible"] is True
+    assert res["results"]["rclone_bisync_legacy"]["record_visible"] is True
+    missing = sorted(k for k, r in res["results"].items() if not r["record_visible"])
+    assert res["verdict"] == {"not_visible": missing, "clean": not missing}

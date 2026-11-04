@@ -712,7 +712,11 @@ def raw_scan(store: Path) -> dict[str, Any]:
 
 
 def check_replica(
-    w: Writer, entries: list[dict[str, Any]], *, run_doctor: bool = True
+    w: Writer,
+    entries: list[dict[str, Any]],
+    *,
+    run_doctor: bool = True,
+    want_unexpected: bool = False,
 ) -> dict[str, Any]:
     """Open a copy of the replica the way a user would and compare to the journal."""
     from graph_ted_db.store import GraphStore
@@ -774,6 +778,8 @@ def check_replica(
             ).hexdigest()[:16],
         }
     )
+    if want_unexpected:
+        res["unexpected_keys"] = sorted(unexpected)
     if run_doctor:
         rep = store.doctor()
         res["doctor"] = {
@@ -1125,6 +1131,18 @@ def sc6a_kill_writer(cfg: Config, name: str = "s6a_kill_writer", trials: int = 6
             "trials": trial_notes,
         },
     )
+    entries = read_journals(a, b)
+    allowance = s6a_allowance(
+        name,
+        trials,
+        [
+            set(
+                check_replica(w, entries, run_doctor=False, want_unexpected=True)["unexpected_keys"]
+            )
+            for w in (a, b)
+        ],
+    )
+    res["notes"]["one_txn_per_trial"] = allowance
     # Journal lines are written after commit, so a killed writer's last
     # transaction can be present without a journal entry ("unexpected").
     # After WAL replay every trial must hold whole 200-record transactions.
@@ -1141,7 +1159,68 @@ def sc6a_kill_writer(cfg: Config, name: str = "s6a_kill_writer", trials: int = 6
         res["notes"][f"{w.name}_present_per_trial"] = per_trial
         res["notes"][f"{w.name}_whole_transactions"] = all(c % 200 == 0 for c in per_trial)
         shutil.rmtree(scratch, ignore_errors=True)
+    res["verdict"] = s6a_verdict(res["verdict"], allowance, res["notes"])
     return res
+
+
+S6A_TXN = 200  # records per writer transaction in s6a (batch=200)
+
+
+def s6a_allowance(
+    name: str, trials: int, unexpected_per_replica: list[set[tuple[str, str]]]
+) -> dict[str, Any]:
+    """Split each replica's "unexpected" records into the allowed and the rest.
+
+    The journal line is written after the commit, so SIGKILL can leave exactly
+    one committed transaction with no journal entry: at most S6A_TXN of that
+    trial's own nodes. Anything else unexpected is a real fault.
+    """
+    out: dict[str, Any] = {"per_replica": []}
+    worst = 0
+    for keys in unexpected_per_replica:
+        by_trial = []
+        accounted: set[tuple[str, str]] = set()
+        for t in range(trials):
+            own = {("node", rid(name, "A", "node", t * 10000 + i)) for i in range(3000)}
+            hit = keys & own
+            accounted |= hit
+            by_trial.append(len(hit))
+        beyond = sum(max(0, c - S6A_TXN) for c in by_trial) + len(keys - accounted)
+        worst = max(worst, beyond)
+        out["per_replica"].append({"unexpected_per_trial": by_trial, "beyond_allowance": beyond})
+    out["beyond_allowance"] = worst
+    return out
+
+
+def s6a_verdict(
+    base: dict[str, Any], allowance: dict[str, Any], notes: dict[str, Any]
+) -> dict[str, Any]:
+    """The usual verdict, with up to one unjournaled transaction per trial allowed.
+
+    Still not clean on any lost, stale, corrupt or resurrected record, on a
+    replica that does not open, on replicas that differ, on any unexpected
+    record beyond the allowance, or on a partial transaction.
+    """
+    v = dict(base)
+    v["unexpected_raw"] = base.get("unexpected", 0)
+    v["unexpected"] = allowance["beyond_allowance"]
+    v["whole_transactions"] = all(notes.get(f"{w}_whole_transactions", False) for w in ("A", "B"))
+    keys = (
+        "lost",
+        "lost_but_on_disk",
+        "stale_version",
+        "corrupt",
+        "unexpected",
+        "deleted_but_live",
+        "skipped_lines",
+    )
+    v["clean"] = (
+        v["all_open"]
+        and v["replicas_identical"]
+        and v["whole_transactions"]
+        and not any(v.get(k) for k in keys)
+    )
+    return v
 
 
 def sc6b_kill_rclone(cfg: Config, name: str = "s6b_kill_rclone", n: int = 6000) -> dict[str, Any]:
@@ -1264,18 +1343,25 @@ def sc8_native_conflict_names(cfg: Config, name: str = "s8_native_names") -> dic
         s = GraphStore.open(root, data_dir=base / f"{label}-data")
         n = s.make_node(labels=["X"], props={"k": 1}, record_id=rid(name, label, "node", 0))
         s.publish()
-        shard = next(s.paths.nodes_dir.glob(f"*.{s.writer_id}.*.jsonl"))
+        # Since db #36 a publish writes one bundle per directory,
+        # "<writer>.<seq>.jsonl", not one file per shard.
+        bundles = sorted(s.paths.nodes_dir.glob(f"{s.writer_id}.*.jsonl"))
+        if len(bundles) != 1:
+            raise RuntimeError(f"s8: expected one nodes bundle, found {len(bundles)}")
+        shard = bundles[0]
         fork = shard.with_name(pattern.format(s=shard.stem))
         os.replace(shard, fork)
         s2 = GraphStore.open(root, data_dir=base / f"{label}-data2")
         results[label] = {
-            "file": "nodes/" + pattern.format(s="NN"),
+            "file": "nodes/" + pattern.format(s="<writer>.<seq>"),
             "record_visible": s2.get_node(n.id) is not None,
         }
+    missing = sorted(k for k, r in results.items() if not r["record_visible"])
     return {
         "scenario": name,
-        "notes": {"desc": "canonical shard renamed to each client's conflict-copy pattern"},
+        "notes": {"desc": "published bundle renamed to each client's conflict-copy pattern"},
         "results": results,
+        "verdict": {"not_visible": missing, "clean": not missing},
     }
 
 
@@ -1422,8 +1508,25 @@ def cmd_run(args: argparse.Namespace) -> int:
         out_path.write_text(json.dumps(scrub_obj(report), indent=2, default=str))
         v = res.get("verdict") or res.get("results") or res.get("error")
         print(f"{key}: {json.dumps(v, default=str)}", flush=True)
+    failed = failed_scenarios(report["results"])
+    report["failed"] = failed
+    out_path.write_text(json.dumps(scrub_obj(report), indent=2, default=str))
     print(f"results: {out_path}")
+    if failed:
+        print(f"FAILED: {', '.join(failed)}", flush=True)
+        return 1
+    print("ALL CLEAN", flush=True)
     return 0
+
+
+def failed_scenarios(results: list[dict[str, Any]]) -> list[str]:
+    """Scenarios that errored, have no verdict, or whose verdict is not clean."""
+    out = []
+    for res in results:
+        v = res.get("verdict")
+        if "error" in res or not isinstance(v, dict) or not v.get("clean"):
+            out.append(str(res.get("scenario", "?")))
+    return out
 
 
 def main(argv: list[str] | None = None) -> int:
