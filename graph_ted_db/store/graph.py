@@ -45,10 +45,12 @@ from graph_ted_db.store.jsonl import (
     replace_json_file,
     replace_jsonl,
 )
+from graph_ted_db.store.ledger import PublishLedger, sha256_hex
 from graph_ted_db.store.lock import (
     active_dir_for,
     exclusive_lock,
     index_dir_for,
+    ledger_dir_for,
     lock_path_for,
     stage_dir_for,
     try_exclusive_lock,
@@ -150,6 +152,10 @@ def is_cloud_only(st: os.stat_result) -> bool:
     return bool(attrs & _CLOUD_ONLY_ATTRS)
 
 
+# How often the background publisher compares the folder against the ledger.
+_RESTORE_CHECK_SECONDS = 2.0
+
+
 class SharedStoreError(RuntimeError):
     """The operation would rewrite files another device also writes."""
 
@@ -182,6 +188,9 @@ class DoctorReport:
     sealed_torn: list[str] = field(default_factory=list)
     meta_problems: list[str] = field(default_factory=list)
     older_format: bool = False
+    restored_own_files: list[str] = field(default_factory=list)
+    own_files_changed: list[str] = field(default_factory=list)
+    own_restore_held: list[str] = field(default_factory=list)
     fix: bool = False
 
     def summary(self) -> str:
@@ -203,7 +212,16 @@ class DoctorReport:
             f"v2 files sealed into segments: {len(self.migrated)}",
             f"sealed segments with a torn tail (not modified): {len(self.sealed_torn)}",
             f"app meta files with problems (not modified): {len(self.meta_problems)}",
+            f"restored {len(self.restored_own_files)} own files deleted by sync",
+            f"own files changed by something else (not modified): {len(self.own_files_changed)}",
+            f"own files missing, restore held (run doctor --restore): {len(self.own_restore_held)}",
         ]
+        for item in self.restored_own_files:
+            lines.append(f"  restored {item}")
+        for item in self.own_files_changed:
+            lines.append(f"  own bundle changed {item}")
+        for item in self.own_restore_held:
+            lines.append(f"  missing, not restored {item}")
         for item in self.torn_repaired:
             lines.append(f"  repaired {item}")
         for item in self.foreign_torn:
@@ -271,6 +289,12 @@ class GraphStore(_GraphStoreAliases):
         self.paths = GraphPaths(self.root, writer=self.writer_id)
         self._active_root = active_dir_for(self.meta.id, data_dir)
         self._stage_dir = stage_dir_for(self.meta.id, data_dir)
+        # BUG-007: what this writer published, with retained copies (local only).
+        self._ledger = PublishLedger(ledger_dir_for(self.meta.id, data_dir))
+        self._restored: list[str] = []
+        self._own_changed: list[str] = []
+        self._restore_held: list[str] = []
+        self._restore_last = 0.0
         self._active_since: dict[str, float] = {}
         self._active_last: dict[str, float] = {}
         self._stop = threading.Event()
@@ -342,6 +366,10 @@ class GraphStore(_GraphStoreAliases):
         with store._lock():
             store._recover_files()
             store._recover_active()
+            # Before anything can publish or compact: put back this writer's own
+            # published files that a sync client deleted (BUG-007).
+            store._adopt_own_files_unlocked()
+            store._restore_own_unlocked(full=True)
             store._migrate_owned_legacy()
             store._replay_wal_unlocked()
             # Bytes left in the active log were already committed (or just
@@ -378,8 +406,12 @@ class GraphStore(_GraphStoreAliases):
         files whose last line is incomplete, left unmodified (usually still
         syncing). ``cloud_only_files``: cloud-only placeholders (OneDrive Files
         On-Demand). ``empty_record_files``: zero-byte record files.
+        Only when non-zero: ``own_files_changed`` (this device's own published
+        file has other bytes than it published; left alone) and
+        ``own_restore_held`` (own files missing but not restored, because the
+        folder looks deleted or moved; ``doctor --restore`` puts them back).
         """
-        return {
+        counts = {
             "skipped_lines": len(set(self.skipped_lines)),
             "unterminated_other_writers": len(self._foreign_torn),
             "cloud_only_files": len(self._cloud_only),
@@ -387,6 +419,13 @@ class GraphStore(_GraphStoreAliases):
             "meta_problems": len(self._meta_problems()),
             "sealed_torn": len(self._sealed_torn),
         }
+        # BUG-007 counts appear only when non-zero, so existing callers that
+        # compare the whole dict are unaffected.
+        if self._own_changed:
+            counts["own_files_changed"] = len(self._own_changed)
+        if self._restore_held:
+            counts["own_restore_held"] = len(self._restore_held)
+        return counts
 
     def notices(self) -> dict[str, int]:
         """Informational counts. Not problems: nothing is hidden or damaged.
@@ -394,16 +433,22 @@ class GraphStore(_GraphStoreAliases):
         ``legacy_v2_files``: version 2 record files that are read normally and
         folded into a bundle when their writer opens the folder with 0.1.2 or
         newer. ``older_format``: 1 when ``graph.json`` still records an older
-        format version (upgraded on the next write).
+        format version (upgraded on the next write). ``restored_own_files``
+        (only when non-zero): this device's own published files that a sync
+        client deleted and that were put back with the same name and bytes.
         """
-        return {
+        counts = {
             "legacy_v2_files": len(self._legacy_v2_paths()),
             "older_format": int(self.meta.format_version < FORMAT_VERSION),
         }
+        if self._restored:
+            counts["restored_own_files"] = len(self._restored)
+        return counts
 
     def uses_older_format(self) -> bool:
         """True when the folder is in an older storage format (see ``notices``)."""
-        return any(self.notices().values())
+        notices = self.notices()
+        return bool(notices["legacy_v2_files"] or notices["older_format"])
 
     @contextmanager
     def _lock(self):
@@ -1254,7 +1299,7 @@ class GraphStore(_GraphStoreAliases):
             self._compact_tombstones()
             self._rebuild_index_unlocked()
 
-    def doctor(self, *, fix: bool = False) -> DoctorReport:
+    def doctor(self, *, fix: bool = False, restore: bool = False) -> DoctorReport:
         """Repair torn JSONL, drop leftover tmp, rebuild labels, report dangling edges.
 
         Dangling edges (an endpoint is not a live node) are only reported
@@ -1262,11 +1307,18 @@ class GraphStore(_GraphStoreAliases):
         permanent and syncs to every device, and in a shared folder an edge
         can arrive before its nodes, so run with ``fix=True`` only once the
         sync client has finished.
+
+        ``restore`` puts back this device's own missing record files even when
+        the mass-delete guard held them (graph.json gone, or every one missing).
         """
         report = DoctorReport(fix=fix)
         with self._lock():
             report.torn_repaired, report.tmp_removed = self._recover_files()
             report.torn_repaired.extend(self._recover_active())
+            self._restore_own_unlocked(full=True, force=restore)
+            report.restored_own_files = list(self._restored)
+            report.own_files_changed = list(self._own_changed)
+            report.own_restore_held = list(self._restore_held)
             self._migrate_owned_legacy()
             report.foreign_torn = list(self._foreign_torn)
             report.sealed_torn = list(self._sealed_torn)
@@ -1691,11 +1743,7 @@ class GraphStore(_GraphStoreAliases):
         thread.start()
 
     def _publisher_period(self) -> float | None:
-        waits = [
-            value
-            for value in (self._policy.idle, self._policy.max_interval)
-            if value > 0
-        ]
+        waits = [value for value in (self._policy.idle, self._policy.max_interval) if value > 0]
         if not waits:
             return None
         return max(0.05, min(0.25, min(waits) / 2))
@@ -1705,6 +1753,10 @@ class GraphStore(_GraphStoreAliases):
         if self._stop.is_set():
             return
         with self._lock():
+            now = time.monotonic()
+            if now - self._restore_last >= _RESTORE_CHECK_SECONDS:
+                self._restore_last = now
+                self._restore_own_unlocked(full=False)
             self._publish_due_unlocked(force=False)
 
     def _publish_due_unlocked(self, *, force: bool) -> int:
@@ -1771,22 +1823,155 @@ class GraphStore(_GraphStoreAliases):
             self._register_writer_unlocked()
             self._registered = True
         directory.mkdir(parents=True, exist_ok=True)
-        if tombstones:
-            dest = segment_path(
-                directory,
-                "deleted",
-                self.writer_id,
-                next_seq(directory, "deleted", self.writer_id),
-            )
-        else:
-            dest = bundle_path(
-                directory, self.writer_id, next_bundle_seq(directory, self.writer_id)
-            )
-        publish_immutable(dest, payload, stage_dir=self._stage_dir)
+        dest = self._publish_own(directory, payload, kind="deleted" if tombstones else "bundle")
+        # The retained copy is durable before the active log is emptied, so a
+        # crash leaves either the active bytes or the retained copy.
         self._truncate_logs(logs)
         self._touch_index(dest)
         self._maybe_autocompact(directory)
         return dest
+
+    # --- BUG-007: publish ledger and restore of this writer's own files ---
+
+    def _next_own_dest(self, directory: Path, kind: str) -> Path:
+        """Next name for one of this writer's files. Never a name it used before.
+
+        The folder listing alone is not enough: if a sync client deleted the
+        newest file, max(listing) + 1 would reuse its name with new bytes.
+        """
+        rel = self._rel(directory)
+        if kind == "deleted":
+            seq = max(
+                next_seq(directory, "deleted", self.writer_id),
+                self._ledger.high_water(rel, f"deleted.{self.writer_id}.") + 1,
+            )
+            return segment_path(directory, "deleted", self.writer_id, seq)
+        seq = max(
+            next_bundle_seq(directory, self.writer_id),
+            self._ledger.high_water(rel, f"{self.writer_id}.") + 1,
+        )
+        return bundle_path(directory, self.writer_id, seq)
+
+    def _publish_own(self, directory: Path, payload: bytes, *, kind: str) -> Path:
+        """Publish one new immutable file and record it (with a retained copy)."""
+        dest = self._next_own_dest(directory, kind)
+        publish_immutable(dest, payload, stage_dir=self._stage_dir)
+        self._ledger.record(self._rel(directory), dest.name, payload)
+        return dest
+
+    def _own_published_files(self) -> list[Path]:
+        found: list[Path] = []
+        for directory in self._fold_directories():
+            found.extend(self._own_bundles(directory))
+            if directory == self.paths.meta_dir:
+                found.extend(self._own_sealed(directory, "deleted"))
+        return found
+
+    def _adopt_own_files_unlocked(self) -> None:
+        """First open with a ledger: record the own files already in the folder.
+
+        Stores written by 0.1.4 or older have no ledger. Their current files
+        become protected from this open on. A file that was already lost
+        before this version cannot be brought back.
+        """
+        if self._ledger.exists():
+            return
+        adopted = 0
+        for path in self._own_published_files():
+            if not is_sealed_segment_name(path.name):
+                continue
+            try:
+                data = path.read_bytes()
+            except OSError:
+                continue
+            if data and self._ledger.get(self._rel(path.parent), path.name) is None:
+                self._ledger.record(self._rel(path.parent), path.name, data)
+                adopted += 1
+        if not adopted:
+            # An empty ledger file still marks "adopted", so a later open
+            # does not adopt files that arrived from a restore of a backup.
+            self._ledger.root.mkdir(parents=True, exist_ok=True)
+            self._ledger.file.touch()
+
+    def _restore_own_unlocked(self, *, full: bool, force: bool = False) -> list[str]:
+        """Put back this writer's live published files that are missing.
+
+        A missing file is republished from the retained copy under the same
+        name with the same bytes, so every replica converges on it. A file that
+        is present with other bytes is left alone and reported. Nothing is
+        restored (and it is reported) when graph.json is gone or every one of
+        several live files is missing: the folder was probably deleted or
+        moved on purpose. ``force`` (``doctor --restore``) restores anyway.
+        ``full`` also compares the bytes of files that are present.
+        """
+        live = self._ledger.live()
+        if not live:
+            return []
+        listings: dict[str, set[str] | None] = {}
+        missing = []
+        changed: list[str] = []
+        for entry in live:
+            if entry.dir not in listings:
+                try:
+                    listings[entry.dir] = set(os.listdir(self.root / entry.dir))
+                except OSError:
+                    listings[entry.dir] = None
+            names = listings[entry.dir]
+            path = self.root / entry.dir / entry.name
+            if names is None or entry.name not in names:
+                missing.append(entry)
+                continue
+            if full:
+                try:
+                    data = path.read_bytes()
+                except OSError:
+                    continue
+                if len(data) != entry.size or sha256_hex(data) != entry.sha256:
+                    changed.append(entry.key)
+        self._own_changed = changed
+        if not missing:
+            self._restore_held = []
+            return []
+        graph_gone = not self.paths.graph_json.is_file()
+        all_gone = len(live) > 1 and len(missing) == len(live)
+        if (graph_gone or all_gone) and not force:
+            held = [e.key for e in missing]
+            if held != self._restore_held:
+                log.warning(
+                    "graph-ted-db: %d of this device's own record files are missing%s;"
+                    " not restoring them (the folder may have been deleted or moved on"
+                    " purpose). Run `graph-ted-db doctor --restore` to put them back",
+                    len(missing),
+                    " and graph.json is gone" if graph_gone else "",
+                )
+            self._restore_held = held
+            return []
+        self._restore_held = []
+        restored: list[str] = []
+        for entry in missing:
+            data = self._ledger.retained(entry)
+            if data is None:
+                log.warning(
+                    "graph-ted-db: own record file %s is missing and its retained copy"
+                    " is gone or damaged; it cannot be restored",
+                    entry.key,
+                )
+                continue
+            dest = self.root / entry.dir / entry.name
+            try:
+                publish_immutable(dest, data, stage_dir=self._stage_dir)
+            except FileExistsError:
+                continue
+            self._touch_index(dest)
+            restored.append(entry.key)
+        if restored:
+            log.warning(
+                "graph-ted-db: restored %d own record file(s) deleted by sync: %s",
+                len(restored),
+                ", ".join(restored),
+            )
+            self._restored.extend(restored)
+        return restored
 
     def _truncate_logs(self, logs: list[Path]) -> None:
         for path in logs:
@@ -1803,6 +1988,10 @@ class GraphStore(_GraphStoreAliases):
         for path in paths:
             try:
                 if path.stat().st_size == len(data) and path.read_bytes() == data:
+                    # A crash after the publish and before the ledger line:
+                    # record it now so it is protected like any other.
+                    if self._ledger.get(self._rel(directory), path.name) is None:
+                        self._ledger.record(self._rel(directory), path.name, data)
                     return True
             except OSError:
                 continue
@@ -1877,22 +2066,14 @@ class GraphStore(_GraphStoreAliases):
         dest: Path | None = None
         if payload:
             directory.mkdir(parents=True, exist_ok=True)
-            if kind == "deleted":
-                dest = segment_path(
-                    directory,
-                    "deleted",
-                    self.writer_id,
-                    next_seq(directory, "deleted", self.writer_id),
-                )
-            else:
-                dest = bundle_path(
-                    directory, self.writer_id, next_bundle_seq(directory, self.writer_id)
-                )
-            publish_immutable(dest, payload, stage_dir=self._stage_dir)
+            dest = self._publish_own(directory, payload, kind=kind)
             self._touch_index(dest)
+        # The replacement is published and retained; only now retire the old
+        # files, then delete them. A retired file that disappears is never restored.
         for path in sealed + legacy:
             if dest is not None and path.resolve() == dest.resolve():
                 continue
+            self._ledger.retire(self._rel(directory), path.name)
             try:
                 path.unlink()
             except OSError:
@@ -1986,23 +2167,11 @@ class GraphStore(_GraphStoreAliases):
                 parts.append(data if data.endswith(b"\n") else data + b"\n")
         payload = b"".join(parts)
         tombstones = directory == self.paths.meta_dir
-        if payload and not self._payload_already_sealed(
-            directory, payload, tombstones=tombstones
-        ):
-            if tombstones:
-                dest = segment_path(
-                    directory,
-                    "deleted",
-                    self.writer_id,
-                    next_seq(directory, "deleted", self.writer_id),
-                )
-            else:
-                dest = bundle_path(
-                    directory, self.writer_id, next_bundle_seq(directory, self.writer_id)
-                )
-            publish_immutable(dest, payload, stage_dir=self._stage_dir)
+        if payload and not self._payload_already_sealed(directory, payload, tombstones=tombstones):
+            dest = self._publish_own(directory, payload, kind="deleted" if tombstones else "bundle")
             self._touch_index(dest)
         for path in old:
+            self._ledger.retire(self._rel(directory), path.name)
             try:
                 path.unlink()
             except OSError:
