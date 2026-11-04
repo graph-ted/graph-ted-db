@@ -58,11 +58,39 @@ def stage_dir_for(graph_id: str, data_dir: Path | None = None) -> Path:
     return (data_dir or default_data_dir()) / graph_id / "stage"
 
 
+def _ensure_lock_file(path: Path) -> None:
+    """Create ``path`` holding its one lock byte, atomically, if it is missing.
+
+    O_CREAT|O_EXCL means exactly one process creates the file. Another may
+    open the new, still-empty file and lock byte 0 before the creator's
+    write lands; then the write is refused (Windows), which is harmless,
+    because a byte-range lock works past end of file.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0))
+    except FileExistsError:
+        return
+    try:
+        os.write(fd, b"0")
+    except PermissionError:
+        pass
+    finally:
+        os.close(fd)
+
+
 def _prepare_win_lock(fd) -> None:
+    """Give an existing empty LOCK (older versions, crash) its byte, if free.
+
+    Unbuffered, so a refused write leaves nothing pending in ``fd`` to fail
+    again at close. Refused means another process holds byte 0: fine.
+    """
     fd.seek(0, os.SEEK_END)
     if fd.tell() == 0:
-        fd.write("0")
-        fd.flush()
+        try:
+            os.write(fd.fileno(), b"0")
+        except PermissionError:
+            pass
     fd.seek(0)
 
 
@@ -112,7 +140,7 @@ def _unlock_fd(fd) -> None:
 
 @contextmanager
 def exclusive_lock(path: Path) -> Iterator[None]:
-    path.parent.mkdir(parents=True, exist_ok=True)
+    _ensure_lock_file(path)
     with open(path, "a+", encoding="utf-8") as fd:
         _lock_fd(fd)
         try:
@@ -128,7 +156,7 @@ def try_exclusive_lock(path: Path, timeout: float) -> Iterator[bool]:
     ``timeout`` of 0 tries once. The yielded value is whether this process
     holds the lock for the rest of the block.
     """
-    path.parent.mkdir(parents=True, exist_ok=True)
+    _ensure_lock_file(path)
     with open(path, "a+", encoding="utf-8") as fd:
         locked = _lock_fd_nb(fd)
         if not locked and timeout > 0:
