@@ -6,6 +6,8 @@ version may include breaking changes; they are called out under **Changed**.
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-11-04
+
 ### Upgrading to 0.1.5
 
 - No format change. 0.1.5 reads and writes the same folders as 0.1.2 to
