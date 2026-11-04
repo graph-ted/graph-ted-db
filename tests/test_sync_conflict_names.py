@@ -140,3 +140,54 @@ def test_partial_transfer_file_is_ignored(tmp_path: Path) -> None:
     )
     fresh = GraphStore.open(g.root, data_dir=tmp_path / "data-fresh")
     assert {n.props["name"] for n in fresh.iter_nodes()} == {"alice"}
+
+
+# BUG-008: since bundles (one "<writer>.<seq>.jsonl" per directory), a conflict
+# copy of a bundle was read only with a suffix after ".jsonl". One case per
+# client naming form, as the sync harness scenario s8 renames them.
+BUNDLE_CONFLICT_FORMS = {
+    "windows_client": "{s}-DESKTOP-ABC123.jsonl",
+    "abraunegg_safebackup": "{s}-hostname-safeBackup-0001.jsonl",
+    "dropbox_style": "{s} (conflicted copy).jsonl",
+    "rclone_bisync_default": "{s}.jsonl.conflict1",
+    "rclone_bisync_legacy": "{s}.jsonl..path1",
+    "rclone_bisync_keep_ext": "{s}.conflict1.jsonl",
+}
+
+
+@pytest.mark.parametrize("form", sorted(BUNDLE_CONFLICT_FORMS))
+def test_bundle_conflict_copy_stays_visible(tmp_path: Path, form: str) -> None:
+    g = _open(tmp_path)
+    g.put_node(_node(A, "alice"))
+    bundle = _sealed(g, g.paths.nodes_dir, A)
+    copy = bundle.with_name(BUNDLE_CONFLICT_FORMS[form].format(s=bundle.stem))
+    os.replace(bundle, copy)
+    assert not bundle.exists()
+
+    fresh = GraphStore.open(g.root, data_dir=tmp_path / "data-fresh")
+    assert fresh.get_node(A) is not None
+    assert {n.props["name"] for n in fresh.iter_nodes()} == {"alice"}
+    assert [Path(p).name for p in fresh.doctor().conflict_copies] == [copy.name]
+    # A later publish by another writer leaves the copy readable and in place.
+    fresh.put_node(_node(B, "bob"))
+    fresh.publish()
+    assert copy.exists()
+    assert {n.props["name"] for n in fresh.iter_nodes()} == {"alice", "bob"}
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "w0123456789abcdef.000001.jsonl.tmp",
+        "w0123456789abcdef.000001.jsonl.1f5c946a.partial",
+        "w0123456789abcdef.0000012.jsonl",
+        "w0123456789abcdef.000001-DESKTOP-ABC123.json",
+        ".w0123456789abcdef.000001.jsonl",
+        "~$w0123456789abcdef.000001.jsonl",
+    ],
+)
+def test_not_a_bundle_or_its_conflict_copy(tmp_path: Path, name: str) -> None:
+    from graph_ted_db.store.paths import bundle_jsonl_files
+
+    (tmp_path / name).write_text("{}\n", encoding="utf-8")
+    assert bundle_jsonl_files(tmp_path) == []
