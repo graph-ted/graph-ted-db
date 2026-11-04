@@ -132,9 +132,7 @@ def tracked_files(root: Path = ROOT) -> list[str]:
     return [p for p in proc.stdout.decode().split("\0") if p]
 
 
-def scan_paths(
-    paths: list[str], rules, root: Path = ROOT
-) -> tuple[list[Finding], int]:
+def scan_paths(paths: list[str], rules, root: Path = ROOT) -> tuple[list[Finding], int]:
     """Scan ``paths`` and return (findings, number of files scanned).
 
     A relative path is resolved against ``root``; an absolute path is used as is.
@@ -175,7 +173,11 @@ def scan_files(paths: list[str], rules, root: Path = ROOT) -> list[Finding]:
 def repo_root(start: Path) -> Path:
     """The git top level containing ``start``, or ``start`` itself outside git."""
     proc = subprocess.run(
-        ["git", "rev-parse", "--show-toplevel"], cwd=start, capture_output=True, text=True
+        ["git", "rev-parse", "--show-toplevel"],
+        cwd=start,
+        capture_output=True,
+        text=True,
+        check=False,
     )
     return Path(proc.stdout.strip()) if proc.returncode == 0 else start
 
