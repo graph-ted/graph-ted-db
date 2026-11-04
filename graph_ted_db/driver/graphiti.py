@@ -198,7 +198,6 @@ class GraphTedDbDriver(GraphDriver):
         """
         if delete_existing:
             await self.delete_all_indexes()
-        return None
 
     async def verify_connectivity(self) -> None:
         if self._http:
