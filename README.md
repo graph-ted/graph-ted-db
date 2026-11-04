@@ -73,7 +73,7 @@ curl -s http://127.0.0.1:8099/cypher -H 'Content-Type: application/json' \
 - A Python library that stores a property graph (nodes, edges, properties, embeddings) as plain JSONL files in one folder.
 - In-process: open, read, write and query from your own Python process. No server to install or run.
 - A documented subset of openCypher, plus NetworkX-style helpers.
-- Sync-friendly across devices: multiple devices can add and edit at the same time; concurrent edits to the same record resolve to the latest version. The folder can live in OneDrive, Dropbox or an `rclone bisync` folder (see [Sharing](https://graph-ted.com/graph-ted-db/docs/sharing/)).
+- Sync-friendly across devices: multiple devices can add and edit at the same time; concurrent edits to the same record resolve to the latest version. The folder can live in OneDrive, Dropbox or an `rclone bisync` folder (see [Sharing](https://graph-ted.com/graph-ted-db/docs/sharing/)). Since 0.1.5, if a record file is deleted from the synced folder, the device that wrote it puts it back.
 - Small: no runtime dependencies beyond the Python standard library.
 
 **It isn't:**

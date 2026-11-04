@@ -6,6 +6,14 @@ version may include breaking changes; they are called out under **Changed**.
 
 ## [Unreleased]
 
+### Upgrading to 0.1.5
+
+- No format change. 0.1.5 reads and writes the same folders as 0.1.2 to
+  0.1.4, so machines on any of them can share a folder. Each device now also
+  keeps a `published/` directory in its local data directory (never in the
+  graph folder) with a copy of every file it publishes. Files deleted before
+  the upgrade cannot be put back.
+
 ### Fixed
 
 - A record file deleted from a synced graph folder (by the sync service, a
@@ -19,6 +27,15 @@ version may include breaking changes; they are called out under **Changed**.
   it is reported; `doctor --restore` forces it. No format change: 0.1.4
   and older read these folders as before. Files of a device that no longer
   writes to the folder are not restored.
+- Windows: two processes opening a graph at the same moment on one device
+  could fail with `PermissionError: [Errno 13]` while the local `LOCK` file
+  was new. The file is now created once, atomically, with its lock byte, and
+  a process that finds the byte locked by another waits for the lock instead
+  of failing.
+
+### Internal
+
+- Lint-only cleanup so `ruff` passes on main; no behaviour change.
 
 ## [0.1.4] - 2026-11-03
 

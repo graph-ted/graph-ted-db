@@ -370,11 +370,12 @@ Suggested location: platform app data / cache dir `graph-ted-db/<graph-id>/`.
 | `fulltext/` | inverted index for BM25 |
 | `vectors.bin` | unpacked f32 cache |
 | `adj.jsonl` | adjacency |
-| `LOCK` | cross-process lock for this machine |
+| `LOCK` | cross-process lock for this machine. Created once, atomically, holding one byte; on Windows the lock is a byte-range lock on that byte |
 | `writer.json` | this device's random writer id (**not** rebuildable: losing it starts a new id) |
 | `wal/` | local write-ahead record for an in-flight transaction |
 | `active/` | this writer's growing record log, sealed into the graph folder by the publish rule |
 | `stage/` | temporary files for a seal; never synced |
+| `published/` | this writer's publish ledger (`ledger.jsonl`) and a copy of every file it published, used to put back own files deleted by sync (0.1.5 and later); never synced |
 
 These must not be placed in the synced graph folder. Losing `active/` before a seal loses records that were durable on this device but not yet published. `writer.json` is not rebuildable: losing it starts a new id. The index and WAL are rebuilt or replayed from the graph folder and `active/`.
 
