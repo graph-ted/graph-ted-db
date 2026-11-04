@@ -101,8 +101,15 @@ _SEGMENT_FILE = re.compile(
     r"^(?P<stem>[0-9a-f]{2}|deleted)\.(?P<writer>w[0-9a-f]{16})(?:\.(?P<seq>[0-9]{6}))?\.jsonl$"
 )
 _BUNDLE_FILE = re.compile(r"^(?P<writer>w[0-9a-f]{16})\.(?P<seq>[0-9]{6})\.jsonl$")
-# Exact bundle, or that name plus a sync-client suffix. Not a per-shard segment.
-_BUNDLE_OR_CONFLICT = re.compile(r"^w[0-9a-f]{16}\.[0-9]{6}\.jsonl(?:\.|$)")
+# Exact bundle, or a sync client's conflict copy of one: the bundle stem
+# "<writer>.<seq>" followed by anything but another digit. That covers a suffix
+# after ".jsonl" (rclone bisync: ".jsonl.conflict1", ".jsonl..path1") and a
+# suffix before it ("-DESKTOP-ABC123.jsonl" from the Windows OneDrive client,
+# "-hostname-safeBackup-0001.jsonl" from abraunegg onedrive, " (conflicted
+# copy).jsonl" from Dropbox, ".conflict1.jsonl" from bisync
+# --suffix-keep-extension). Callers also require is_record_file_name, so
+# "*.tmp" and "*.partial" stay ignored. Not a per-shard segment.
+_BUNDLE_OR_CONFLICT = re.compile(r"^w[0-9a-f]{16}\.[0-9]{6}(?![0-9])")
 
 
 def _segment_match(name: str) -> re.Match[str] | None:
