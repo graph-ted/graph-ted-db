@@ -8,8 +8,11 @@ copy should be complete.
 
 A sync client copies deletes and mistakes to every device within seconds. If
 a file is deleted or replaced on one device or in the cloud, the sync client
-will usually remove or replace it everywhere. Keep at least one copy that the
-sync client does not manage.
+will usually remove or replace it everywhere. Since 0.1.5 a device puts back
+a record file it published if the file is deleted (see
+[Sharing](sharing.md)), but that does not cover a deleted or moved graph
+folder, files from a device that no longer writes to it, or other mistakes.
+Keep at least one copy that the sync client does not manage.
 
 ## Option 1: copy the folder
 
