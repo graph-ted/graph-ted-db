@@ -1,5 +1,14 @@
 # Upgrading
 
+## Upgrading to 0.1.5
+
+- No format change: 0.1.2 to 0.1.5 can share a folder.
+- Each device keeps a new `published/` directory in its local data directory
+  (never in the graph folder) with a copy of every file it publishes, so it
+  can put back its own files if sync deletes them. It grows with the files
+  this device has published and shrinks when compaction retires them.
+- Files deleted before the upgrade cannot be put back.
+
 ## Upgrading to 0.1.3
 
 - No format change: 0.1.2 and 0.1.3 can share a folder.
