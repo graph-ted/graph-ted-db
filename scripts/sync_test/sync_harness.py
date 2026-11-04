@@ -1539,7 +1539,8 @@ def sc11b_drop_newest(cfg: Config, name: str = "s11b_drop_newest") -> dict[str, 
     that was ever published keeps its bytes on every replica.
     """
     a, b = setup_pair(cfg, name)
-    a.write([node_op(name, "A", i) for i in range(150)], batch=50)
+    for k in range(3):  # one sealed bundle per write session
+        a.write([node_op(name, "A", k * 50 + i) for i in range(50)], batch=50)
     a.sync()
     b.sync()
     wid = _writer_id(a)
@@ -1577,7 +1578,8 @@ def sc11c_compact_after_drop(cfg: Config, name: str = "s11c_compact_after_drop")
     Nothing is lost, and files that compaction replaced are not brought back.
     """
     a, b = setup_pair(cfg, name)
-    a.write([node_op(name, "A", i) for i in range(200)], batch=50)
+    for k in range(3):  # 3 bundles; automatic compaction starts at 4
+        a.write([node_op(name, "A", k * 50 + i) for i in range(50)], batch=50)
     a.sync()
     b.sync()
     wid = _writer_id(a)
@@ -1589,26 +1591,29 @@ def sc11c_compact_after_drop(cfg: Config, name: str = "s11c_compact_after_drop")
     for _ in range(2):
         a.sync()
         b.sync()
+    own_mid = [p for p in _remote_files(cfg, a) if wid in p]
     _reopen(a)  # a later open must not resurrect what compaction replaced
     for _ in range(2):
         a.sync()
         b.sync()
     own_after = [p for p in _remote_files(cfg, a) if wid in p]
-    resurrected = sorted(set(own_before) & set(own_after))
+    replaced = set(own_before) - set(own_mid)
+    resurrected = sorted(replaced & set(own_after))
     entries = read_journals(a, b)
     checks = [check_replica(a, entries), check_replica(b, entries)]
     return _result(
         name,
         checks,
         {
-            "desc": "A seals 4 bundles, one is deleted on the remote and propagated, A reopens"
+            "desc": "A seals 3 bundles, one is deleted on the remote and propagated, A reopens"
             " and compacts, then reopens again. Expect 0 lost and no replaced file back.",
             "restore": restore,
             "own_files_before": len(own_before),
+            "own_files_after_compaction": len(own_mid),
             "own_files_after": len(own_after),
             "resurrected": len(resurrected),
         },
-        ok=not resurrected,
+        ok=not resurrected and len(own_mid) < len(own_before),
     )
 
 
