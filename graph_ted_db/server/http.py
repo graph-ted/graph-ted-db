@@ -81,6 +81,10 @@ class GraphTedHandler(BaseHTTPRequestHandler):
         if parsed.path in ("/", "/info"):
             self._send_json(200, _info_payload(self.server.store))
             return
+        if parsed.path == "/signatures":
+            # Read-only (REQ-078): per-writer signature states. No key material.
+            self._send_json(200, self.server.store.signatures().to_dict())
+            return
         if parsed.path == "/cypher":
             query, params, error = _query_from_qs(parsed.query)
             if error:

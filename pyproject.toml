@@ -37,6 +37,8 @@ Changelog = "https://github.com/graph-ted/graph-ted-db/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+# Interim signing (REQ-078): Ed25519 device keys. Optional; the base install has no dependencies.
+signing = ["cryptography>=42"]
 
 [project.scripts]
 graph-ted-db = "graph_ted_db.cli:main"

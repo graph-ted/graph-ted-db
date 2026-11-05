@@ -82,6 +82,9 @@ def iter_json_objects(
                     skipped.append(f"{path}:{lineno}")
                 continue
             if isinstance(parsed, dict):
+                if "gtsig" in parsed and "id" not in parsed:
+                    # REQ-078 signature line at the end of a sealed bundle; not a record.
+                    continue
                 yield lineno, parsed
             elif skipped is not None:
                 skipped.append(f"{path}:{lineno}")

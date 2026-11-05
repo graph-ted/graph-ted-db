@@ -55,7 +55,9 @@ jobs:
           python-version: "3.13"
 
       - name: Install
-        run: pip install -e ".[dev]"
+        # The full gate runs the signing tests too; the matrix below installs
+        # without the extra, so the zero-dependency path is tested as well.
+        run: pip install -e ".[dev,signing]"
 
       - name: Test
         run: pytest

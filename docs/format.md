@@ -420,3 +420,83 @@ meta/ontology/default/head.<writer-id-a>.json
   returned with `problem` set (`cloud-only`, `empty`, `unterminated`,
   `invalid-json`, `conflict-copy`, `tmp`) and is never skipped silently or
   modified. `doctor` and `problems()` report the same files (`meta_problems`).
+
+## Signatures (optional, `gtsig` version 1)
+
+A device can sign what it publishes so that readers notice when someone edits
+a sealed bundle or publishes under another device's writer id. Signing is off
+until the device has a key, and it needs the optional extra:
+
+```bash
+pip install "graph-ted-db[signing]"   # adds cryptography; the base install has no dependencies
+```
+
+The folder layout, file names and `format_version` 4 do not change. A reader
+without signing support reads a signed folder normally.
+
+**Device key** (local app data, never in the graph folder). `GraphStore` signs
+while this file exists. Its path is `GRAPH_TED_DB_SIGNING_KEY`, else
+`<data dir>/keys/signing-key.json`. The file is mode 600 in a mode 700 folder;
+a key path inside the graph folder is refused. Create one with
+`graph_ted_db.signing.create_key(path, label="")`.
+
+```json
+{"gtkey": 1, "alg": "ed25519", "secret": "<base64 32-byte seed>", "label": "", "created_at": "...Z"}
+```
+
+`label` is optional and blank by default. Only the user types it; the store
+never fills it in. Signer ids are `k` + the first 16 hex of SHA-256 of the raw
+public key, never derived from a user, OS or host name.
+
+**Claim** (`meta/identity/claim.<writer>.json`, public, written once by the
+first signed publish of that writer):
+
+```json
+{"gtclaim": 1, "writer": "w3f9c0a17be42d851", "signer": "k5d1e92a0c47b3f08", "alg": "ed25519",
+ "public_key": "<base64>", "label": "", "created_at": "...Z", "sig": "<base64>"}
+```
+
+**Signature line** (the last line of each sealed bundle, including tombstone
+bundles `meta/deleted.<writer>.<seq>.jsonl`):
+
+```json
+{"gtsig": 1, "alg": "ed25519", "signer": "k5d1e92a0c47b3f08", "writer": "w3f9c0a17be42d851",
+ "file": "nodes/w3f9c0a17be42d851.000007.jsonl", "lines": 412, "sha256": "<hex of every byte above>",
+ "signed_at": "...Z", "sig": "<base64>"}
+```
+
+- `sig` signs the canonical JSON of the object without `sig` (sorted keys, no
+  spaces, UTF-8).
+- `file` binds the signature to the directory, writer and sequence number, so a
+  bundle cannot be renamed or replayed as another sequence.
+- The line has no `id`. graph-ted-db 0.1.5 and older skip it as one non-record
+  line (counted once per bundle under `skipped_lines`); newer readers skip it
+  silently. Update every device before anyone turns signing on.
+- App metadata written with `meta_put(..., sign=True)` carries the same object
+  as a top-level `_gtsig` field, with `file` set to the meta path and `sha256`
+  over the canonical document without `_gtsig`. Drafts, locks, `graph.json`,
+  `labels.json` and `writers/` are not signed.
+
+Compaction and the fold of older files publish new bundles, which are signed
+fresh. A pre-signing file that was edited before it was folded is signed as it
+stands.
+
+**Checking.** `GraphStore.signatures()`, `doctor`, `info --check` and
+`GET /signatures` report, per writer, how many bundles are in each state:
+
+| State | Meaning |
+|---|---|
+| `signed` | The line verifies, its hash and line count match, its writer and file match the name, and its signer matches the writer's claim. |
+| `unsigned` | No signature line (written before signing, or with signing off). Neutral. |
+| `mismatch` | Any check above fails, or the writer's claim changed. Records still load. |
+| `syncing` | The last line is unterminated, or the writer's claim has not arrived yet. |
+| `newer` | `gtsig` or `gtclaim` is newer than this reader. Never a failure. |
+| `unchecked` | Signed, but this reader has no `signing` extra. |
+
+The first valid claim a device sees for a writer is pinned in that device's
+local data (`<data dir>/<graph id>/signers.json`, trust on first use). A later,
+different claim for the same writer is reported as `mismatch`.
+
+A new key needs a new writer id: if this device's writer already claimed
+another signer, the store stops signing for it and reports
+`signing_key_problem` in `problems()`.

@@ -20,6 +20,7 @@ A client stores `http://127.0.0.1:8099` as its connection URL.
 |---|---|---|
 | `GET` | `/health` | Liveness only: `{"ok": true, "version": "0.1.0"}`. It needs no token, so it reveals nothing about the graph. Use it (or `RETURN 1 AS ok`) as a connection test. |
 | `GET` | `/info` or `/` | `graph.json` fields (graph `id`, `name`, format), the folder path (`root`), live node/edge counts, and `problems` counts (see `doctor`). Needs the token when one is set |
+| `GET` | `/signatures` | Read-only signature report (per writer: signed, unsigned, doesn't match, ...; see [format](format.md#signatures-optional-gtsig-version-1)). No key material. Needs the token when one is set |
 | `POST` | `/cypher` | One query (`query`) or an atomic batch (`statements`). Writes allowed. |
 | `GET` | `/cypher?query=…` | Read convenience for curl. Mutating queries return `405`. `params` is a JSON object string |
 
