@@ -18,13 +18,17 @@ The library will not make an insecure disk secure. Choose storage and network to
 
 ## Signatures (optional)
 
-With the `signing` extra and a device key, each device signs the bundles it
-publishes (see [Signatures](format.md#signatures-optional-gtsig-version-1)).
+Signing is opt-in per device: install `pip install "graph-ted-db[signing]"`,
+then a device signs the bundles it publishes while it has a key file (see
+[Signatures](format.md#signatures-optional-gtsig-version-1)). Devices without a
+key keep working; their bundles show as unsigned, which is neutral.
 
-- **Stops:** one device publishing under another device's writer id, and edits
+Signing **detects**; it does not prevent anything, and it is not encryption.
+
+- **Detects:** one device publishing under another device's writer id, and edits
   to a sealed bundle after it was published. Both are reported as "doesn't
   match"; the records still load.
-- **Does not stop:** deleting whole files, reading the folder, a brand-new
+- **Does not stop or detect:** reading the folder (anyone with access can read it), deleting whole files, a brand-new
   writer that never claimed to be someone else (its bundles are unsigned or
   from an unknown signer), clock games, or several users behind one shared
   store process (one device key signs for all of them).
@@ -33,4 +37,6 @@ publishes (see [Signatures](format.md#signatures-optional-gtsig-version-1)).
   and a new writer id; the old claim stays in the folder and its bundles keep
   verifying.
 - **Trust on first use:** each device trusts the first claim it sees for a
-  writer. A forged claim that reaches a device first is trusted on that device.
+  writer and keeps trusting it. A forged claim that reaches a device first is
+  trusted on that device. This is an interim scheme; there is no way yet to
+  confirm a signer out of band.

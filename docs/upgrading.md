@@ -1,5 +1,14 @@
 # Upgrading
 
+## Upgrading to 0.1.6
+
+- No format change: 0.1.2 to 0.1.6 can share a folder.
+- Signing is optional and off until a device has a key; install
+  `graph-ted-db[signing]` to use it (see
+  [Signatures](format.md#signatures-optional-gtsig-version-1)).
+- Older readers read signed folders normally, but update every device before
+  anyone turns signing on, so every device can check signatures.
+
 ## Upgrading to 0.1.5
 
 - No format change: 0.1.2 to 0.1.5 can share a folder.
