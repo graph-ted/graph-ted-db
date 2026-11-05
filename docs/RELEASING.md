@@ -50,6 +50,18 @@ OS-sensitive path list: see the `changes` job in `.github/workflows/ci.yml`.
    Run the README quick start. A version number can only be uploaded once per
    index; if the TestPyPI build is wrong, fix it and bump to `X.Y.Z` with a
    new pre-release suffix (for example `0.1.0rc2`) for TestPyPI only.
+3a. Required, before publishing (REQ-132): one smoke test against the package
+   that is on PyPI now (the latest published version, for example `0.1.5`
+   before releasing `0.1.6`). Actions → `testpypi-smoke` → Run workflow →
+   index `pypi`, version = that published version. It installs from PyPI in a
+   clean venv on Linux, macOS and Windows and runs `scripts/quickstart_smoke.py`.
+   Or locally:
+   ```sh
+   python -m venv /tmp/pypi-smoke && /tmp/pypi-smoke/bin/pip install --no-cache-dir graph-ted-db==<published>
+   (cd /tmp && /tmp/pypi-smoke/bin/python <checkout>/scripts/quickstart_smoke.py)
+   ```
+   If it fails, stop: the PyPI install path is broken independently of the new
+   version; fix that first. It installs only; nothing is published.
 4. Create a GitHub release with tag `vX.Y.Z` on the merge SHA and paste the changelog
    section as notes. Publishing the release runs the `pypi` job; the workflow
    refuses to run if the tag and `pyproject.toml` disagree.
