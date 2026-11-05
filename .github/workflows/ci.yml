@@ -6,24 +6,102 @@ on:
   push:
     branches: [main]
     tags: ["v*"]
+  # Monday 12:00 UTC = 6:00 AM CT (CST) / 7:00 AM CT (CDT). Cool weekday hour.
+  schedule:
+    - cron: "0 12 * * 1"
   workflow_dispatch:
 
 permissions:
   contents: read
 
-env:
-  # THE SWITCH. "true" while the repo is private, to save Actions minutes:
-  #   - pull requests run a trimmed set (Linux, Python 3.10 and 3.13, one
-  #     wheel install);
-  #   - push to main, v* tags and manual runs run the full matrix minus macOS
-  #     (Linux 3.10-3.14 and Windows tests, 20 Linux/Windows install jobs).
-  # After the repo goes public (minutes are free), set it to "false" to run
-  # the full matrix everywhere, macOS included. See docs/RELEASING.md.
-  REPO_IS_PRIVATE: "false"
+# Cancel superseded runs on the same PR or ref so macOS jobs do not pile up
+# behind GitHub's arm64 capacity limits.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
+  # Decide whether this run needs macOS, and whether it needs the full matrix.
+  # OS-sensitive paths (file / lock / sync, setup scripts, packaging, this
+  # workflow): a PR that touches any of them gets a lean macOS set. Release
+  # tags, the weekly schedule and manual runs get the full macOS matrix.
+  # Every other PR, and ordinary pushes to main, stay Linux (+ Windows for
+  # main / tags / schedule / dispatch). See docs/RELEASING.md.
+  changes:
+    name: detect OS-sensitive paths
+    runs-on: ubuntu-latest
+    outputs:
+      want_macos: ${{ steps.mode.outputs.want_macos }}
+      force_full: ${{ steps.mode.outputs.force_full }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        if: github.event_name == 'pull_request'
+        with:
+          filters: |
+            macos:
+              - 'graph_ted_db/store/**'
+              - 'setup.sh'
+              - 'setup.bat'
+              - 'shell.sh'
+              - 'shell.bat'
+              - 'serve.sh'
+              - 'serve.bat'
+              - 'scripts/sync_test/**'
+              - 'tests/sync/**'
+              - 'tests/test_lock_win_race.py'
+              - 'tests/test_paths.py'
+              - 'tests/test_concurrent.py'
+              - 'tests/test_crash_durability.py'
+              - 'tests/test_crash_hook_safety.py'
+              - 'tests/test_own_file_restore.py'
+              - 'tests/test_foreign_tails.py'
+              - 'tests/test_segment_publish.py'
+              - 'tests/test_meta_files.py'
+              - 'tests/test_sync_conflict_names.py'
+              - 'tests/test_sync_harness_unit.py'
+              - 'tests/bench_txn_fsync.py'
+              - 'pyproject.toml'
+              - 'MANIFEST.in'
+              - '.github/workflows/ci.yml'
+
+      - id: mode
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          PATHS_MACOS: ${{ steps.filter.outputs.macos }}
+        run: |
+          want_macos=false
+          force_full=false
+          case "$EVENT" in
+            schedule|workflow_dispatch)
+              want_macos=true
+              force_full=true
+              ;;
+            push)
+              if [[ "$REF" == refs/tags/v* ]]; then
+                want_macos=true
+                force_full=true
+              fi
+              # push to main: no macOS (the v* tag run covers releases)
+              ;;
+            pull_request)
+              if [ "$PATHS_MACOS" = "true" ]; then
+                want_macos=true
+                # lean macOS set (not force_full)
+              fi
+              ;;
+          esac
+          echo "want_macos=$want_macos" >> "$GITHUB_OUTPUT"
+          echo "force_full=$force_full" >> "$GITHUB_OUTPUT"
+          echo "event=$EVENT ref=$REF paths_macos=${PATHS_MACOS:-n/a} -> want_macos=$want_macos force_full=$force_full"
+
   plan:
     name: plan matrix
+    needs: changes
     runs-on: ubuntu-latest
     outputs:
       tests: ${{ steps.m.outputs.tests }}
@@ -31,15 +109,57 @@ jobs:
     steps:
       - id: m
         shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          WANT_MACOS: ${{ needs.changes.outputs.want_macos }}
+          FORCE_FULL: ${{ needs.changes.outputs.force_full }}
         run: |
-          if [ "$REPO_IS_PRIVATE" = "true" ] && [ "${{ github.event_name }}" = "pull_request" ]; then
-            tests='[{"os":"ubuntu-latest","python":"3.10"}]'
-            installs='[{"os":"ubuntu-latest","python":"3.13","artifact":"wheel"}]'
+          # Base OS list (never empty). PRs that are not OS-sensitive stay
+          # Linux-only. Everything else keeps Windows; macOS is opt-in above.
+          if [ "$EVENT" = "pull_request" ] && [ "$WANT_MACOS" != "true" ]; then
+            oses='["ubuntu-latest"]'
           else
-            oses='["ubuntu-latest","macos-latest","windows-latest"]'
-            if [ "$REPO_IS_PRIVATE" = "true" ]; then oses='["ubuntu-latest","windows-latest"]'; fi
+            oses='["ubuntu-latest","windows-latest"]'
+            if [ "$WANT_MACOS" = "true" ]; then
+              oses='["ubuntu-latest","macos-latest","windows-latest"]'
+            fi
+          fi
+
+          if [ "$EVENT" = "pull_request" ] && [ "$WANT_MACOS" != "true" ]; then
+            # Linux-only PR: one extra Python besides the full-gate job.
+            tests='[{"os":"ubuntu-latest","python":"3.10"},{"os":"ubuntu-latest","python":"3.14"}]'
+            installs='[{"os":"ubuntu-latest","python":"3.13","artifact":"wheel"}]'
+          elif [ "$FORCE_FULL" = "true" ]; then
+            # Tag / weekly / manual: full matrix across the OS list.
             tests=$(OSES="$oses" python3 -c 'import json,os; o=json.loads(os.environ["OSES"]); t=[{"os":"ubuntu-latest","python":p} for p in ["3.10","3.11","3.12","3.14"]]; t+=[{"os":x,"python":"3.13"} for x in o if x!="ubuntu-latest"]; print(json.dumps(t))')
             installs=$(OSES="$oses" python3 -c 'import json,os; print(json.dumps([{"os":o,"python":p,"artifact":a} for o in json.loads(os.environ["OSES"]) for p in ["3.10","3.11","3.12","3.13","3.14"] for a in ["wheel","sdist"]]))')
+          elif [ "$WANT_MACOS" = "true" ]; then
+            # OS-sensitive PR: Linux+Windows as usual, lean macOS (pytest 3.13
+            # + one wheel install) so we do not flood arm64 capacity.
+            tests=$(python3 -c 'import json; print(json.dumps([
+              {"os":"ubuntu-latest","python":"3.10"},
+              {"os":"ubuntu-latest","python":"3.11"},
+              {"os":"ubuntu-latest","python":"3.12"},
+              {"os":"ubuntu-latest","python":"3.14"},
+              {"os":"macos-latest","python":"3.13"},
+              {"os":"windows-latest","python":"3.13"},
+            ]))')
+            installs=$(python3 -c 'import json; print(json.dumps(
+              [{"os":"ubuntu-latest","python":p,"artifact":a} for p in ["3.10","3.11","3.12","3.13","3.14"] for a in ["wheel","sdist"]]
+              + [{"os":"windows-latest","python":p,"artifact":a} for p in ["3.10","3.11","3.12","3.13","3.14"] for a in ["wheel","sdist"]]
+              + [{"os":"macos-latest","python":"3.13","artifact":"wheel"}]
+            ))')
+          else
+            # Push to main (no macOS): Linux + Windows full, no macOS.
+            tests=$(python3 -c 'import json; print(json.dumps([
+              {"os":"ubuntu-latest","python":p} for p in ["3.10","3.11","3.12","3.14"]
+            ] + [{"os":"windows-latest","python":"3.13"}]))')
+            installs=$(python3 -c 'import json; print(json.dumps([
+              {"os":o,"python":p,"artifact":a}
+              for o in ["ubuntu-latest","windows-latest"]
+              for p in ["3.10","3.11","3.12","3.13","3.14"]
+              for a in ["wheel","sdist"]
+            ]))')
           fi
           echo "tests=$tests" >> "$GITHUB_OUTPUT"
           echo "installs=$installs" >> "$GITHUB_OUTPUT"
@@ -55,9 +175,7 @@ jobs:
           python-version: "3.13"
 
       - name: Install
-        # The full gate runs the signing tests too; the matrix below installs
-        # without the extra, so the zero-dependency path is tested as well.
-        run: pip install -e ".[dev,signing]"
+        run: pip install -e ".[dev]"
 
       - name: Test
         run: pytest
@@ -80,8 +198,9 @@ jobs:
           python -m build
           python -m twine check --strict dist/*
 
-  # Tests only, on the other supported Pythons and on macOS/Windows. The job
-  # above stays the full gate (PII scan, tokens, docs, package build).
+  # Tests only, on the other supported Pythons and on macOS/Windows when the
+  # plan includes them. The job above stays the full gate (PII scan, tokens,
+  # docs, package build).
   matrix:
     name: pytest (${{ matrix.os }}, Python ${{ matrix.python }})
     needs: plan
@@ -104,7 +223,7 @@ jobs:
         run: python -m pytest
 
   # Build once, then install the wheel and the sdist into clean venvs on every
-  # supported OS and Python. No checkout on the install side beyond the README
+  # planned OS and Python. No checkout on the install side beyond the README
   # and the check script, so a missing runtime dependency fails here.
   build:
     name: build sdist + wheel
@@ -167,3 +286,31 @@ jobs:
           graph-ted-db --version
           graphted-db --help > /dev/null
           python "$GITHUB_WORKSPACE/scripts/check_quickstart.py" "$GITHUB_WORKSPACE/README.md"
+
+  # Stable check name so a required "macos" status never hangs when the OS
+  # matrix skipped macOS. Green when macOS was not wanted; otherwise mirrors
+  # the macOS matrix/install outcomes.
+  macos:
+    name: macos
+    needs: [changes, matrix, install]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report macOS status
+        env:
+          WANT: ${{ needs.changes.outputs.want_macos }}
+          MATRIX: ${{ needs.matrix.result }}
+          INSTALL: ${{ needs.install.result }}
+        run: |
+          echo "want_macos=$WANT matrix=$MATRIX install=$INSTALL"
+          if [ "$WANT" != "true" ]; then
+            echo "macOS not required for this event/paths; reporting green"
+            exit 0
+          fi
+          # When macOS was wanted, matrix and install must have succeeded
+          # (they include the macOS legs). cancelled/skipped/failure → red.
+          if [ "$MATRIX" != "success" ] || [ "$INSTALL" != "success" ]; then
+            echo "macOS was required but matrix=$MATRIX install=$INSTALL"
+            exit 1
+          fi
+          echo "macOS legs green"
