@@ -6,36 +6,32 @@ Publishing uses PyPI trusted publishing from `.github/workflows/release.yml`
 (environments `pypi` and `testpypi`). No API tokens exist anywhere. Only the
 release workflow can upload.
 
-## 0. Launch step: restore full CI
+## 0. When CI runs macOS
 
-While the repository is private, CI is trimmed to save Actions minutes, under
-one switch, `REPO_IS_PRIVATE: "true"` in the `env:` block at the top of
-`.github/workflows/ci.yml`:
+The repo is public. Hosted macOS minutes still cost (10× Linux), and
+`macos-latest` (arm64) has limited capacity, so macOS is opt-in:
 
-- Pull requests: Linux on Python 3.10 and 3.13 (the 3.13 job is the full gate:
-  tests, PII scan, docs, package build) plus one wheel install.
-- Push to `main`, `v*` tags and manual runs (Actions → CI → Run workflow):
-  tests on Linux 3.10–3.14 and Windows 3.13, and wheel/sdist installs on Linux
-  and Windows for 3.10–3.14 (20 jobs). **macOS is not run.**
+| Trigger | macOS |
+|---|---|
+| Pull request that touches OS-sensitive paths (store / lock / sync, setup scripts, packaging, or `.github/workflows/ci.yml`) | Lean set: pytest on macOS 3.13 + one wheel install |
+| Any other pull request | Linux only (no macOS, no Windows) |
+| Push to `main` | Linux + Windows; **no macOS** |
+| `v*` release tag | Full macOS matrix (with Linux + Windows) |
+| Weekly schedule (Monday 12:00 UTC / ~6 AM CT) | Full macOS matrix |
+| Actions → CI → Run workflow | Full macOS matrix |
 
-Right after the repository is made public:
+Concurrency uses `cancel-in-progress` so a new push on the same PR or ref
+cancels the previous run instead of queuing more macOS jobs. The `macos`
+check is always reported: green when macOS was skipped, red only when macOS
+was required and a macOS leg failed or was cancelled.
 
-1. Set `REPO_IS_PRIVATE: "false"`. That is the only switch. It restores the
-   full matrix everywhere: tests on Linux, macOS and Windows, and all 30
-   install jobs, on pull requests too.
-2. Merge that one-line PR and check that its run shows macOS jobs.
-
-Until then, macOS is covered only by local runs, if at all: run the full CI
-manually before merging anything platform-specific (paths, locks, file
-attributes), and when hosted minutes are unavailable, verify locally (test
-suite on 3.10–3.14, `scripts/pii_scan.py`, `mkdocs build --strict`, wheel and
-sdist installs in clean venvs) and post the results on the PR.
+OS-sensitive path list: see the `changes` job in `.github/workflows/ci.yml`.
 
 ## 1. Cut a release
 
 0. Required: Docs updated for this change (user docs, CHANGELOG, upgrade notes if needed) before the version bump. Docs ship in the same PR as the code.
-1. On `main`, with the full CI green (tests, install matrix, PII scan, docs build;
-   the push-to-`main` run, not the trimmed PR run):
+1. On `main`, with CI green (tests, install matrix, PII scan, docs build;
+   the push-to-`main` run covers Linux + Windows; the `v*` tag run adds macOS):
    - Set `version` in `pyproject.toml`.
    - Move the `Unreleased` notes in `CHANGELOG.md` under the new version and date.
      Call out breaking changes under **Changed**, and any on-disk format change
