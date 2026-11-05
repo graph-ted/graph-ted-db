@@ -10,7 +10,7 @@ Local property-graph storage for Python. Your data lives in a folder on disk; op
 
 **Package:** `graph-ted-db` · **Import:** `graph_ted_db` · **Repo:** [graph-ted/graph-ted-db](https://github.com/graph-ted/graph-ted-db) · **License:** MIT
 
-> Status: the public API and on-disk format below are what we ship. `pip install graph-ted-db` is the intended install; until the package is on PyPI, use a checkout (`pip install -e .`) or a wheel path.
+> Status: the public API and on-disk format below are what we ship. Install from PyPI with `pip install graph-ted-db`.
 
 ---
 
@@ -20,7 +20,13 @@ Local property-graph storage for Python. Your data lives in a folder on disk; op
 pip install graph-ted-db
 ```
 
-Requires Python 3.10+.
+Requires Python 3.10+. No dependencies.
+
+Optional signing (adds `cryptography`):
+
+```bash
+pip install "graph-ted-db[signing]"
+```
 
 ## Quick start
 
@@ -64,6 +70,7 @@ curl -s http://127.0.0.1:8099/cypher -H 'Content-Type: application/json' \
 - **openCypher queries** — `g.execute(...)` runs a documented subset of openCypher for graph-pattern queries ([openCypher subset](https://graph-ted.com/graph-ted-db/docs/cypher/))
 - **Optional HTTP** — localhost endpoint for openCypher queries when another process needs the store ([HTTP docs](https://graph-ted.com/graph-ted-db/docs/http/))
 - **Sync-friendly** — multiple devices can write at once; last-write-wins per record; conflict-copy shards merged on read
+- **Optional signing** — per device, opt-in: signed bundles let readers spot edits after publishing and one device publishing as another ([Signatures](https://graph-ted.com/graph-ted-db/docs/format/#signatures-optional-gtsig-version-1))
 - **NetworkX-style helpers** — `add_node`, `add_edge`, `neighbors`, and related methods on the same `GraphStore` (no algorithm suite)
 
 ## What it is and isn't
@@ -102,6 +109,15 @@ Data is stored as ordinary files. The library does **not** encrypt the graph fol
 
 Choose storage and network to match how sensitive the data is.
 
+**Signing (optional, `graph-ted-db[signing]`).** Opt-in per device: a device signs what it publishes while it has a key file in its local data. Readers then see each bundle as signed, unsigned (neutral) or "doesn't match".
+
+- Detects edits to a bundle after it was published, and one device publishing under another device's writer id. Records still load; the mismatch is reported.
+- Does not block reading or deleting files, and is not encryption.
+- No recovery copy of the key: a lost key means a new signer and a new writer id.
+- Each device trusts the first claim it sees for a writer (trust on first use).
+
+See [Security](https://graph-ted.com/graph-ted-db/docs/security/#signatures-optional).
+
 ## Documentation
 
 Docs: [graph-ted.com/graph-ted-db/docs](https://graph-ted.com/graph-ted-db/docs/), built from the `docs/` folder in this repository. Preview locally: see [PREVIEW.md](https://github.com/graph-ted/graph-ted-db/blob/main/PREVIEW.md).
@@ -113,6 +129,8 @@ Docs: [graph-ted.com/graph-ted-db/docs](https://graph-ted.com/graph-ted-db/docs/
 | [openCypher subset](https://graph-ted.com/graph-ted-db/docs/cypher/) | Supported openCypher subset |
 | [Trademarks](https://graph-ted.com/graph-ted-db/docs/trademarks/) | Trademarks |
 | [HTTP](https://graph-ted.com/graph-ted-db/docs/http/) | Local HTTP serve |
+| [Security](https://graph-ted.com/graph-ted-db/docs/security/) | Security model and optional signing |
+| [Upgrading](https://graph-ted.com/graph-ted-db/docs/upgrading/) | Notes per release |
 
 ## Trademarks
 
