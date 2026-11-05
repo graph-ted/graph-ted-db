@@ -6,6 +6,16 @@ version may include breaking changes; they are called out under **Changed**.
 
 ## [Unreleased]
 
+### Added
+
+- Optional interim signing (REQ-078): `pip install "graph-ted-db[signing]"`
+  (adds `cryptography`; the base install still has no dependencies). With a
+  device key, each sealed bundle ends with a signature line and the writer
+  publishes a self-signed claim. `GraphStore.signatures()`, `doctor`,
+  `info --check` and `GET /signatures` report signed, unsigned and
+  doesn't-match bundles per writer. `meta_put(..., sign=True)` signs app
+  metadata. Format stays v4; see docs/format.md, Signatures.
+
 ## [0.1.5] - 2026-11-04
 
 ### Upgrading to 0.1.5

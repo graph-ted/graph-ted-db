@@ -292,6 +292,7 @@ def _dispatch(args: argparse.Namespace) -> int:
             )
             notices = store.notices()
             print("info: " + " ".join(f"{k}={v}" for k, v in notices.items()))
+            print(store.signatures().summary(), end="")
             return 1 if any(problems.values()) else 0
         return 0
     if args.command == "import":

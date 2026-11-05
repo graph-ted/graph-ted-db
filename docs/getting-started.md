@@ -6,6 +6,10 @@
 pip install graph-ted-db
 ```
 
+To sign what this device publishes to a shared folder (optional, adds
+`cryptography`): `pip install "graph-ted-db[signing]"`. See
+[Signatures](format.md#signatures-optional-gtsig-version-1).
+
 Python 3.10+. If the package is not on PyPI yet:
 
 ```bash

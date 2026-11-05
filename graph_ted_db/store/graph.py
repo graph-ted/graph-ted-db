@@ -191,6 +191,7 @@ class DoctorReport:
     restored_own_files: list[str] = field(default_factory=list)
     own_files_changed: list[str] = field(default_factory=list)
     own_restore_held: list[str] = field(default_factory=list)
+    signatures: str = ""
     fix: bool = False
 
     def summary(self) -> str:
@@ -243,6 +244,8 @@ class DoctorReport:
             lines.append(f"  sealed torn (not modified) {item}")
         for item in self.meta_problems:
             lines.append(f"  meta {item}")
+        if self.signatures:
+            lines.extend(self.signatures.rstrip("\n").split("\n"))
         lines.append(f"info: older-format (v2) files, read normally: {len(self.legacy_v2_files)}")
         for item in self.legacy_v2_files:
             lines.append(f"  info: v2 file, folded when its writer opens with 0.1.2+ {item}")
@@ -278,6 +281,7 @@ class GraphStore(_GraphStoreAliases):
         *,
         data_dir: Path | None = None,
         publish: PublishPolicy | None = None,
+        signing_key: str | Path | None = None,
     ) -> None:
         self.root = Path(root).expanduser().resolve()
         self.meta: GraphMeta = load_graph_meta(self.root)
@@ -335,6 +339,19 @@ class GraphStore(_GraphStoreAliases):
         # Paths touched while a multi-record commit is applied. The fingerprint
         # is updated from these after fsync, instead of scanning every shard.
         self._fp_pending: list[Path] | None = None
+        # REQ-078 interim signing. The key file is the switch: when it exists
+        # (and the `signing` extra is installed) new bundles are signed.
+        from graph_ted_db.signing import default_key_path
+
+        self._key_path = (
+            Path(signing_key).expanduser()
+            if signing_key is not None
+            else default_key_path(data_dir)
+        )
+        self._key_cache: tuple[tuple[int, int] | None, Any] = (None, None)
+        self._signing_problem = ""
+        self._claim_checked: str = ""
+        self._sig_cache: dict[str, Any] = {}
 
     @classmethod
     def open(
@@ -343,6 +360,7 @@ class GraphStore(_GraphStoreAliases):
         *,
         data_dir: Path | None = None,
         publish: PublishPolicy | None = None,
+        signing_key: str | Path | None = None,
     ) -> GraphStore:
         """Open an existing graph folder.
 
@@ -357,12 +375,16 @@ class GraphStore(_GraphStoreAliases):
                 platform app-data directory, never inside the graph folder.
             publish: When to seal the active log into immutable segment files.
                 Defaults to `PublishPolicy.from_env()`.
+            signing_key: This device's signing key file. Defaults to
+                `GRAPH_TED_DB_SIGNING_KEY` or `<data dir>/keys/signing-key.json`.
+                Bundles are signed only while that file exists and the
+                `signing` extra is installed (see docs/format.md, Signatures).
 
         Returns:
             An open store.
         """
         started = time.perf_counter()
-        store = cls(root, data_dir=data_dir, publish=publish)
+        store = cls(root, data_dir=data_dir, publish=publish, signing_key=signing_key)
         with store._lock():
             store._recover_files()
             store._recover_active()
@@ -425,6 +447,8 @@ class GraphStore(_GraphStoreAliases):
             counts["own_files_changed"] = len(self._own_changed)
         if self._restore_held:
             counts["own_restore_held"] = len(self._restore_held)
+        if self._signing_problem:
+            counts["signing_key_problem"] = 1
         return counts
 
     def notices(self) -> dict[str, int]:
@@ -1360,12 +1384,19 @@ class GraphStore(_GraphStoreAliases):
             report.legacy_v2_files = [str(p) for p in self._legacy_v2_paths()]
             report.older_format = self.meta.format_version < FORMAT_VERSION
             report.meta_problems = self._meta_problems()
+        report.signatures = self.signatures().summary()
         return report
 
     # --- app metadata files (meta/<namespace>/<name>.<writer>.json) ---
 
     def meta_put(
-        self, directory: str, name: str, data: dict[str, Any], *, replace_existing: bool = False
+        self,
+        directory: str,
+        name: str,
+        data: dict[str, Any],
+        *,
+        replace_existing: bool = False,
+        sign: bool = False,
     ) -> Path:
         """Write ``meta/<directory>/<name>.<this-writer>.json`` atomically.
 
@@ -1373,6 +1404,9 @@ class GraphStore(_GraphStoreAliases):
         at the same time each keep their file. An existing file is not
         replaced unless ``replace_existing`` (use that for pointers, not for
         append-only versions).
+
+        ``sign``: add a ``_gtsig`` field signed with this device's key, when
+        signing is on (REQ-078; for versioned documents, not drafts or locks).
 
         Raises:
             FileExistsError: the file exists and ``replace_existing`` is false.
@@ -1387,8 +1421,112 @@ class GraphStore(_GraphStoreAliases):
             if not self._registered:
                 self._register_writer_unlocked()
                 self._registered = True
+            if sign:
+                key = self._active_key_unlocked()
+                if key is not None:
+                    from graph_ted_db.signing import sign_meta
+
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    data = sign_meta(key, data, writer=self.writer_id, rel_file=self._rel(path))
             replace_json_file(path, data)
         return path
+
+    # --- REQ-078 interim signing ---
+
+    def _active_key_unlocked(self) -> Any:
+        """This device's key when signing is on and usable, else None.
+
+        Checked on every seal (one stat), so turning signing on or off takes
+        effect without restarting the store. Writes this writer's claim the
+        first time it signs in this folder.
+        """
+        from graph_ted_db import signing
+
+        path = self._key_path
+        try:
+            st = path.stat()
+        except OSError:
+            self._key_cache = (None, None)
+            self._signing_problem = ""
+            return None
+        stamp = (st.st_size, st.st_mtime_ns)
+        if self._key_cache[0] != stamp:
+            problem = ""
+            key = None
+            if path.resolve().is_relative_to(self.root):
+                problem = "the signing key is inside the graph folder; not used"
+            else:
+                try:
+                    key = signing.load_key(path)
+                except signing.SigningError as exc:
+                    problem = str(exc)
+            if problem and problem != self._signing_problem:
+                log.warning("graph-ted-db: signing off: %s", problem)
+            self._signing_problem = problem
+            self._key_cache = (stamp, key)
+            self._claim_checked = ""
+        key = self._key_cache[1]
+        if key is None:
+            return None
+        if self._claim_checked != key.signer:
+            if not self._ensure_claim_unlocked(key):
+                return None
+            self._claim_checked = key.signer
+        return key
+
+    def _ensure_claim_unlocked(self, key: Any) -> bool:
+        from graph_ted_db import signing
+
+        path = meta_path(self.paths.meta_dir, signing.CLAIM_DIR, signing.CLAIM_NAME, self.writer_id)
+        if path.is_file():
+            entry = read_entry(path)
+            if entry.data is not None and entry.data.get("signer") == key.signer:
+                return True
+            # Q7: a new key means a new signer *and* a new writer id. Signing
+            # under this writer with another key would read as "doesn't match".
+            problem = (
+                f"this device's writer {self.writer_id} already claimed another signer;"
+                " a new key needs a new writer id (see docs/security.md)"
+            )
+            if problem != self._signing_problem:
+                log.warning("graph-ted-db: signing off: %s", problem)
+            self._signing_problem = problem
+            return False
+        if not self._registered:
+            self._register_writer_unlocked()
+            self._registered = True
+        path.parent.mkdir(parents=True, exist_ok=True)
+        replace_json_file(path, signing.make_claim(key, self.writer_id))
+        return True
+
+    def signing_status(self) -> dict[str, Any]:
+        """This device's signing state for this folder (no key material)."""
+        from graph_ted_db import signing
+
+        with self._lock():
+            key = self._active_key_unlocked()
+        return {
+            "available": signing.available(),
+            "enabled": key is not None,
+            "writer": self.writer_id,
+            "signer": key.signer if key is not None else "",
+            "label": key.label if key is not None else "",
+            "problem": self._signing_problem,
+        }
+
+    def signatures(self, *, meta_patterns: Iterable[str] = ()) -> Any:
+        """Check every bundle and signed meta document; see `signing.signature_report`."""
+        from graph_ted_db.signing import signature_report
+
+        status = self.signing_status()
+        return signature_report(
+            self.root,
+            graph_id=self.meta.id,
+            data_dir=self.data_dir,
+            meta_patterns=meta_patterns,
+            this_device=status,
+            cache=self._sig_cache,
+        )
 
     def meta_list(self, directory: str) -> list[MetaEntry]:
         """Every file in ``meta/<directory>/`` from all writers, sorted by name.
@@ -1855,6 +1993,14 @@ class GraphStore(_GraphStoreAliases):
     def _publish_own(self, directory: Path, payload: bytes, *, kind: str) -> Path:
         """Publish one new immutable file and record it (with a retained copy)."""
         dest = self._next_own_dest(directory, kind)
+        key = self._active_key_unlocked()
+        if key is not None:
+            from graph_ted_db.signing import signature_line
+
+            directory.mkdir(parents=True, exist_ok=True)
+            payload = payload + signature_line(
+                key, writer=self.writer_id, rel_file=self._rel(dest), payload=payload
+            )
         publish_immutable(dest, payload, stage_dir=self._stage_dir)
         self._ledger.record(self._rel(directory), dest.name, payload)
         return dest
@@ -1987,7 +2133,7 @@ class GraphStore(_GraphStoreAliases):
         )
         for path in paths:
             try:
-                if path.stat().st_size == len(data) and path.read_bytes() == data:
+                if path.stat().st_size >= len(data) and _unsigned_bytes(path.read_bytes()) == data:
                     # A crash after the publish and before the ledger line:
                     # record it now so it is protected like any other.
                     if self._ledger.get(self._rel(directory), path.name) is None:
@@ -2061,7 +2207,12 @@ class GraphStore(_GraphStoreAliases):
         sealed = [path for path in existing if is_sealed_segment_name(path.name)]
         legacy = [path for path in existing if is_legacy_v2_name(path.name)]
         active = self._active_logs(directory)
-        if len(sealed) == 1 and not legacy and not active and sealed[0].read_bytes() == payload:
+        if (
+            len(sealed) == 1
+            and not legacy
+            and not active
+            and _unsigned_bytes(sealed[0].read_bytes()) == payload
+        ):
             return
         dest: Path | None = None
         if payload:
@@ -2725,6 +2876,13 @@ class GraphStore(_GraphStoreAliases):
                 best[key] = picked.payload
         lines = [tomb.to_jsonl() for tomb in best.values()]
         self._install_payload(directory, lines, kind="deleted")
+
+
+def _unsigned_bytes(data: bytes) -> bytes:
+    """A sealed file's bytes without its signature line (REQ-078)."""
+    from graph_ted_db.signing import split_signature
+
+    return split_signature(data)[0]
 
 
 def _wal_groups(path: Path) -> list[list[tuple[str, Any]]]:
