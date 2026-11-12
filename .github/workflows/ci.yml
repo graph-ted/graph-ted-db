@@ -34,9 +34,9 @@ jobs:
       want_macos: ${{ steps.mode.outputs.want_macos }}
       force_full: ${{ steps.mode.outputs.force_full }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
-      - uses: dorny/paths-filter@v3
+      - uses: dorny/paths-filter@v4
         id: filter
         if: github.event_name == 'pull_request'
         with:
@@ -168,9 +168,9 @@ jobs:
     name: pytest (Python 3.13, full gate)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
 
@@ -210,9 +210,9 @@ jobs:
       matrix:
         include: ${{ fromJSON(needs.plan.outputs.tests) }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python }}
 
@@ -229,14 +229,14 @@ jobs:
     name: build sdist + wheel
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - run: |
           python -m pip install build
           python -m build
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: dist
           path: dist/
@@ -254,16 +254,16 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           sparse-checkout: |
             README.md
             scripts/check_quickstart.py
           sparse-checkout-cone-mode: false
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python }}
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: dist
           path: dist/
