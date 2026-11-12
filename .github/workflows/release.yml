@@ -9,6 +9,12 @@
 # Before the first run, register a pending publisher on each index with:
 #   owner graph-ted, repository graph-ted-db, workflow release.yml,
 #   environment pypi (PyPI) / testpypi (TestPyPI), project graph-ted-db.
+#
+# publish_tested_dist (manual runs to PyPI only): skip the build and publish
+# the exact files that were smoke-tested on TestPyPI, so PyPI gets the same
+# bytes (same sha256). A rebuild is not byte-for-byte reproducible. The source
+# run, artifact and hashes are pinned below in env; the run stops before
+# publishing if any of them do not match.
 name: release
 
 on:
@@ -23,12 +29,27 @@ on:
         options:
           - testpypi
           - pypi
+      publish_tested_dist:
+        description: "Skip the build; publish the pinned TestPyPI-tested dist (graph-ted-db 0.1.6) to PyPI"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
+env:
+  # graph-ted-db 0.1.6 as uploaded to TestPyPI on 2026-11-10 by run 42892431622.
+  TESTED_RUN_ID: "42892431622"
+  TESTED_ARTIFACT_ID: "13799800850"
+  TESTED_WHEEL: graph_ted_db-0.1.6-py3-none-any.whl
+  TESTED_WHEEL_SHA256: 158273d1c97b25f19fbd2cef0ff610b86c417c287aa6f6860dc14a5e739601fa
+  TESTED_SDIST: graph_ted_db-0.1.6.tar.gz
+  TESTED_SDIST_SHA256: b2daa98d82da4b3ff74cb60f4dbc5b04a8e79f355561301279daeae585184f36
+
 jobs:
   build:
+    if: github.event_name != 'workflow_dispatch' || !inputs.publish_tested_dist
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -55,9 +76,61 @@ jobs:
           path: dist/
           if-no-files-found: error
 
+  # publish_tested_dist: fetch the pinned artifact from the earlier run, check
+  # names and sha256, and hand it on as this run's "dist" artifact.
+  tested-dist:
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_tested_dist
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Only for target pypi
+        if: inputs.target != 'pypi'
+        run: |
+          echo "::error::publish_tested_dist is only for target pypi (these files are already on TestPyPI)."
+          exit 1
+      - name: The source run's "dist" artifact is the pinned one
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ids=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${TESTED_RUN_ID}/artifacts" \
+            --jq '[.artifacts[] | select(.name == "dist" and (.expired | not)) | .id] | map(tostring) | join(" ")')
+          if [ "$ids" != "$TESTED_ARTIFACT_ID" ]; then
+            echo "::error::run $TESTED_RUN_ID dist artifact ids are '$ids', expected '$TESTED_ARTIFACT_ID'"
+            exit 1
+          fi
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          run-id: ${{ env.TESTED_RUN_ID }}
+          github-token: ${{ github.token }}
+          path: fetched/
+      - name: Exactly the tested files, sha256 must match
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          find fetched -type f -exec cp {} dist/ \;
+          found=$(ls -1 dist | sort | tr '\n' ' ')
+          want=$(printf '%s\n%s\n' "$TESTED_WHEEL" "$TESTED_SDIST" | sort | tr '\n' ' ')
+          if [ "$found" != "$want" ]; then
+            echo "::error::artifact files are '$found', expected '$want'"
+            exit 1
+          fi
+          printf '%s  %s\n%s  %s\n' \
+            "$TESTED_WHEEL_SHA256" "$TESTED_WHEEL" \
+            "$TESTED_SDIST_SHA256" "$TESTED_SDIST" > SHA256SUMS
+          (cd dist && sha256sum --check --strict ../SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
   publish-testpypi:
     needs: build
-    if: github.event_name == 'workflow_dispatch' && inputs.target == 'testpypi'
+    if: github.event_name == 'workflow_dispatch' && inputs.target == 'testpypi' && !inputs.publish_tested_dist
     runs-on: ubuntu-latest
     environment:
       name: testpypi
@@ -74,8 +147,13 @@ jobs:
           repository-url: https://test.pypi.org/legacy/
 
   publish-pypi:
-    needs: build
-    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.target == 'pypi')
+    needs: [build, tested-dist]
+    # Exactly one of build / tested-dist runs; publish only after it succeeded.
+    if: >-
+      !cancelled()
+      && (github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.target == 'pypi'))
+      && ((needs.build.result == 'success' && needs.tested-dist.result == 'skipped')
+          || (needs.build.result == 'skipped' && needs.tested-dist.result == 'success'))
     runs-on: ubuntu-latest
     environment:
       name: pypi
