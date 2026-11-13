@@ -42,7 +42,7 @@ def test_trim_name_lookup(tmp_path: Path):
 def test_limit_and_union_all(tmp_path: Path):
     g = _open(tmp_path)
     g.make_node(labels=["Entity"], props={"name": "Ted", "group_id": "default"})
-    g.make_node(labels=["Entity"], props={"name": "Ann", "group_id": "sales"})
+    g.make_node(labels=["Entity"], props={"name": "Ann", "group_id": "alpha"})
     rows = g.execute(
         """
         MATCH (n) WHERE n.group_id IS NOT NULL
@@ -56,7 +56,7 @@ def test_limit_and_union_all(tmp_path: Path):
         {"node_limit": 10, "relationship_limit": 10},
     )
     ids = {row["group_id"] for row in rows}
-    assert ids == {"default", "sales"}
+    assert ids == {"default", "alpha"}
     assert all(row["entity"] == "node" for row in rows)
 
 
