@@ -75,6 +75,7 @@ jobs:
           name: dist
           path: dist/
           if-no-files-found: error
+          retention-days: 90
 
   # publish_tested_dist: fetch the pinned artifact from the earlier run, check
   # names and sha256, and hand it on as this run's "dist" artifact.
@@ -127,6 +128,7 @@ jobs:
           name: dist
           path: dist/
           if-no-files-found: error
+          retention-days: 90
 
   publish-testpypi:
     needs: build
