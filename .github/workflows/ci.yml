@@ -241,6 +241,7 @@ jobs:
           name: dist
           path: dist/
           if-no-files-found: error
+          retention-days: 7
 
   install:
     name: install ${{ matrix.artifact }} (${{ matrix.os }}, Python ${{ matrix.python }})
